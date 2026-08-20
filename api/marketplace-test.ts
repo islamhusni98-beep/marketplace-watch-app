@@ -11,10 +11,21 @@ export default async function handler(
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
   const apiToken = process.env.CLOUDFLARE_API_TOKEN;
 
+  const diagnostics = {
+    hasAccountId: Boolean(accountId),
+    hasApiToken: Boolean(apiToken),
+    accountIdLength: accountId?.length ?? 0,
+    apiTokenLength: apiToken?.length ?? 0,
+    vercelEnv: process.env.VERCEL_ENV ?? null,
+    vercelRegion: process.env.VERCEL_REGION ?? null,
+    commitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
+  };
+
   if (!accountId || !apiToken) {
     return res.status(500).json({
       ok: false,
-      error: 'Missing CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN'
+      error: 'Missing Cloudflare environment variables',
+      diagnostics,
     });
   }
 
@@ -25,14 +36,14 @@ export default async function handler(
         method: 'POST',
         headers: {
           Authorization: `Bearer ${apiToken}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           url: MARKETPLACE_URL,
           gotoOptions: { waitUntil: 'networkidle2' },
-          excludeExternalLinks: true
-        })
-      }
+          excludeExternalLinks: true,
+        }),
+      },
     );
 
     const data = await response.json();
@@ -40,22 +51,24 @@ export default async function handler(
       ? ((data as { result: string[] }).result ?? [])
       : [];
     const marketplaceItems = links.filter((url) =>
-      url.includes('/marketplace/item/')
+      url.includes('/marketplace/item/'),
     );
 
     return res.status(response.ok ? 200 : response.status).json({
       ok: response.ok,
+      diagnostics,
       cloudflareStatus: response.status,
       totalLinks: links.length,
       marketplaceItemCount: marketplaceItems.length,
       marketplaceItems: marketplaceItems.slice(0, 20),
       rawSuccess: (data as { success?: boolean }).success ?? null,
-      errors: (data as { errors?: unknown }).errors ?? null
+      errors: (data as { errors?: unknown }).errors ?? null,
     });
   } catch (error) {
     return res.status(500).json({
       ok: false,
-      error: error instanceof Error ? error.message : String(error)
+      diagnostics,
+      error: error instanceof Error ? error.message : String(error),
     });
   }
 }
