@@ -20,7 +20,26 @@ export default async function handler(
       headers: { Authorization: `Bearer ${apiToken}` },
     });
 
-    const data = (await response.json()) as {
+    const raw = await response.text();
+    let data: unknown = null;
+    try {
+      data = raw ? JSON.parse(raw) : null;
+    } catch {
+      data = null;
+    }
+
+    if (!response.ok) {
+      return res.status(response.status || 500).json({
+        ok: false,
+        step: 'create-session',
+        cloudflareStatus: response.status,
+        rateLimited: response.status === 429,
+        retryAfter: response.headers.get('retry-after'),
+        responseText: raw.slice(0, 300),
+      });
+    }
+
+    const typed = (data ?? {}) as {
       sessionId?: string;
       webSocketDebuggerUrl?: string;
       targets?: Array<{
@@ -45,16 +64,16 @@ export default async function handler(
       };
     };
 
-    const payload = data.result ?? data;
+    const payload = typed.result ?? typed;
     const sessionId = payload.sessionId;
     const targets = Array.isArray(payload.targets) ? payload.targets : [];
     const target = targets.find((item) => item.type === 'page') ?? targets[0] ?? null;
     const liveViewUrl = target?.devtoolsFrontendUrl ?? null;
 
-    if (!response.ok || !sessionId || !liveViewUrl) {
-      return res.status(response.status || 500).json({
+    if (!sessionId || !liveViewUrl) {
+      return res.status(502).json({
         ok: false,
-        cloudflareStatus: response.status,
+        step: 'parse-session',
         sessionId: sessionId ?? null,
         targetCount: targets.length,
         response: data,
