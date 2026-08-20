@@ -2,11 +2,7 @@ const MARKETPLACE_URL = 'https://www.facebook.com/marketplace/giza/search?maxPri
 
 export default async function handler(
   _req: unknown,
-  res: {
-    status: (code: number) => {
-      json: (body: unknown) => void;
-    };
-  }
+  res: { status: (code: number) => { json: (body: unknown) => void } },
 ) {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
   const apiToken = process.env.CLOUDFLARE_API_TOKEN;
@@ -19,13 +15,27 @@ export default async function handler(
   const base = `https://api.cloudflare.com/client/v4/accounts/${accountId}/browser-rendering/devtools/browser`;
 
   try {
-    const sessionResponse = await fetch(`${base}?keep_alive=600000`, {
-      method: 'POST',
-      headers,
-    });
-    const sessionData = await sessionResponse.json();
+    // targets=true asks Cloudflare to return an immediately usable Live View URL.
+    const sessionResponse = await fetch(
+      `${base}?keep_alive=600000&targets=true&liveViewUrlExpiresInMs=600000`,
+      { method: 'POST', headers },
+    );
+    const sessionData = await sessionResponse.json() as {
+      sessionId?: string;
+      webSocketDebuggerUrl?: string;
+      targets?: Array<Record<string, unknown>>;
+      result?: {
+        sessionId?: string;
+        webSocketDebuggerUrl?: string;
+        targets?: Array<Record<string, unknown>>;
+      };
+    };
 
-    const sessionId = (sessionData as { result?: { sessionId?: string } }).result?.sessionId;
+    // Browser Run's CDP endpoint returns the object directly. Keep result fallback
+    // for compatibility with older envelope-style responses.
+    const payload = sessionData.result ?? sessionData;
+    const sessionId = payload.sessionId;
+
     if (!sessionResponse.ok || !sessionId) {
       return res.status(sessionResponse.status || 500).json({
         ok: false,
@@ -35,20 +45,23 @@ export default async function handler(
       });
     }
 
+    // Open Marketplace in this same persistent browser session.
     const newTabResponse = await fetch(
       `${base}/${sessionId}/json/new?${new URLSearchParams({ url: MARKETPLACE_URL }).toString()}`,
       { method: 'PUT', headers },
     );
-    const newTabData = await newTabResponse.json();
+    const newTabData = await newTabResponse.json() as Record<string, unknown>;
 
+    // The HTTP CDP tab endpoints return target objects/arrays directly.
     const listResponse = await fetch(`${base}/${sessionId}/json/list`, { headers });
-    const listData = await listResponse.json();
-
-    const targets = Array.isArray((listData as { result?: unknown }).result)
-      ? ((listData as { result: Array<Record<string, unknown>> }).result ?? [])
-      : Array.isArray(listData)
-        ? (listData as Array<Record<string, unknown>>)
-        : [];
+    const listData = await listResponse.json() as unknown;
+    const listPayload =
+      typeof listData === 'object' && listData !== null && 'result' in listData
+        ? (listData as { result?: unknown }).result
+        : listData;
+    const targets = Array.isArray(listPayload)
+      ? (listPayload as Array<Record<string, unknown>>)
+      : [];
 
     const pageTargets = targets.filter((target) => target.type === 'page');
     const preferredTarget =
@@ -66,7 +79,6 @@ export default async function handler(
       sessionId,
       keepAliveMs: 600000,
       openMarketplaceStatus: newTabResponse.status,
-      openMarketplaceResponse: newTabData,
       targetCount: targets.length,
       target: preferredTarget
         ? {
@@ -76,9 +88,10 @@ export default async function handler(
             devtoolsFrontendUrl,
           }
         : null,
+      devtoolsFrontendUrl,
       instructions: devtoolsFrontendUrl
-        ? 'Open devtoolsFrontendUrl immediately, log in to Facebook, and keep the session active.'
-        : 'No Live View URL was returned. Open Cloudflare Browser Run > Live Sessions and open this session manually.',
+        ? 'Open devtoolsFrontendUrl immediately. Log in to Facebook and open Marketplace before the 10-minute session expires.'
+        : 'Session was created but no Live View target URL was returned.',
     });
   } catch (error) {
     return res.status(500).json({
