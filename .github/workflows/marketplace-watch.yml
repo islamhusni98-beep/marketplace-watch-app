@@ -24,7 +24,7 @@ jobs:
       INCLUDE_KEYWORDS: ${{ vars.INCLUDE_KEYWORDS }}
       EXCLUDE_KEYWORDS: ${{ vars.EXCLUDE_KEYWORDS }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: '@marketpalacebedo'
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       FB_COOKIES_JSON: ${{ secrets.FB_COOKIES_JSON }}
 
     steps:
