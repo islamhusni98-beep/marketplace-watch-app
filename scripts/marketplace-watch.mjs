@@ -3,14 +3,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const DEFAULT_MARKETPLACE_URL =
-  'https://www.facebook.com/marketplace/giza/vehicles?maxPrice=500000&daysSinceListed=1&sortBy=creation_time_descend';
+  'https://www.facebook.com/marketplace/giza/vehicles?daysSinceListed=1&sortBy=creation_time_descend';
 const MARKETPLACE_URL = process.env.MARKETPLACE_URL || DEFAULT_MARKETPLACE_URL;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const FB_COOKIES_JSON = process.env.FB_COOKIES_JSON || '';
 const MAX_ITEMS = Number(process.env.MAX_ITEMS || 30);
 const MIN_PRICE = Number(process.env.MIN_PRICE || 0);
-const MAX_PRICE = Number(process.env.MAX_PRICE || 500000);
+const MAX_PRICE = Number(process.env.MAX_PRICE || 0);
 const INCLUDE_KEYWORDS = (process.env.INCLUDE_KEYWORDS || '')
   .split(',')
   .map((x) => x.trim().toLowerCase())
@@ -61,9 +61,10 @@ async function sendTelegram(item) {
     '🚗 إعلان سيارة جديد على Marketplace',
     '',
     `📌 ${item.title || 'بدون عنوان'}`,
-    item.priceText ? `💰 ${item.priceText}` : '',
-    item.location ? `📍 ${item.location}` : '',
-    `🔗 ${item.url}`,
+    `💰 السعر: ${item.priceText || 'غير ظاهر'}`,
+    `🕐 نازل من: ${item.listedAgo || 'غير ظاهر'}`,
+    item.location ? `📍 المكان: ${item.location}` : '',
+    `🔗 رابط الإعلان: ${item.url}`,
   ]
     .filter(Boolean)
     .join('\n');
@@ -127,6 +128,8 @@ for (let i = 0; i < 4; i += 1) {
 const rawItems = await page.locator('a[href*="/marketplace/item/"]').evaluateAll((links) => {
   const unique = new Map();
 
+  const listedAgoPattern = /(?:listed\s*)?(?:just now|today|yesterday|\d+\s*(?:min|mins|minute|minutes|hr|hrs|hour|hours|day|days)\s*ago)/i;
+
   for (const link of links) {
     const href = link.href;
     if (!href || unique.has(href)) continue;
@@ -139,10 +142,16 @@ const rawItems = await page.locator('a[href*="/marketplace/item/"]').evaluateAll
       .filter(Boolean);
 
     const priceText = lines.find((line) => /[$€£]|EGP|ج\.م|ر\.س|AED|SAR|USD/i.test(line)) || '';
-    const title = lines.find((line) => line !== priceText) || lines[0] || 'Facebook Marketplace listing';
-    const location = lines.length > 2 ? lines.at(-1) : '';
+    const listedAgo = lines.find((line) => listedAgoPattern.test(line)) || '';
+    const title =
+      lines.find((line) => line !== priceText && line !== listedAgo) ||
+      lines[0] ||
+      'Facebook Marketplace listing';
+    const location =
+      lines.find((line) => line !== title && line !== priceText && line !== listedAgo && /giza|جيزة|القاهرة|cairo/i.test(line)) ||
+      '';
 
-    unique.set(href, { href, title, priceText, location });
+    unique.set(href, { href, title, priceText, location, listedAgo });
   }
 
   return [...unique.values()];
@@ -156,6 +165,7 @@ const items = rawItems
     priceText: x.priceText,
     price: parsePrice(x.priceText),
     location: x.location,
+    listedAgo: x.listedAgo,
   }))
   .filter(passesFilters)
   .slice(0, MAX_ITEMS);
