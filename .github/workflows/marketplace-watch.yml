@@ -11,7 +11,9 @@ permissions:
 jobs:
   watch:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    container:
+      image: mcr.microsoft.com/playwright:v1.55.0-noble
+    timeout-minutes: 6
     env:
       MARKETPLACE_URL: ${{ vars.MARKETPLACE_URL }}
       MAX_ITEMS: ${{ vars.MAX_ITEMS || '30' }}
@@ -27,17 +29,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-
       - name: Install dependencies
-        run: npm install
-
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+        run: npm install --no-audit --no-fund
 
       - name: Restore seen listings
         uses: actions/cache/restore@v4
