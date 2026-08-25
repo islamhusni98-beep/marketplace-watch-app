@@ -2,6 +2,8 @@ name: Marketplace Watch
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
   schedule:
     - cron: '*/30 * * * *'
 
