@@ -1,0 +1,58 @@
+name: Marketplace Watch
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MARKETPLACE_URL: ${{ vars.MARKETPLACE_URL }}
+      MAX_ITEMS: ${{ vars.MAX_ITEMS || '30' }}
+      MIN_PRICE: ${{ vars.MIN_PRICE || '0' }}
+      MAX_PRICE: ${{ vars.MAX_PRICE || '0' }}
+      INCLUDE_KEYWORDS: ${{ vars.INCLUDE_KEYWORDS }}
+      EXCLUDE_KEYWORDS: ${{ vars.EXCLUDE_KEYWORDS }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      FB_COOKIES_JSON: ${{ secrets.FB_COOKIES_JSON }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Restore seen listings
+        uses: actions/cache/restore@v4
+        with:
+          path: data/seen.json
+          key: marketplace-seen-${{ github.run_id }}
+          restore-keys: |
+            marketplace-seen-
+
+      - name: Watch Marketplace
+        run: npm run watch:marketplace
+
+      - name: Save seen listings
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/seen.json
+          key: marketplace-seen-${{ github.run_id }}
