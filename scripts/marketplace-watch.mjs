@@ -2,13 +2,15 @@ import { chromium } from 'playwright';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-const MARKETPLACE_URL = process.env.MARKETPLACE_URL;
+const DEFAULT_MARKETPLACE_URL =
+  'https://www.facebook.com/marketplace/giza/vehicles?maxPrice=500000&daysSinceListed=1&sortBy=creation_time_descend';
+const MARKETPLACE_URL = process.env.MARKETPLACE_URL || DEFAULT_MARKETPLACE_URL;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const FB_COOKIES_JSON = process.env.FB_COOKIES_JSON || '';
 const MAX_ITEMS = Number(process.env.MAX_ITEMS || 30);
 const MIN_PRICE = Number(process.env.MIN_PRICE || 0);
-const MAX_PRICE = Number(process.env.MAX_PRICE || 0);
+const MAX_PRICE = Number(process.env.MAX_PRICE || 500000);
 const INCLUDE_KEYWORDS = (process.env.INCLUDE_KEYWORDS || '')
   .split(',')
   .map((x) => x.trim().toLowerCase())
@@ -19,7 +21,6 @@ const EXCLUDE_KEYWORDS = (process.env.EXCLUDE_KEYWORDS || '')
   .filter(Boolean);
 const DRY_RUN = process.env.DRY_RUN === 'true';
 
-if (!MARKETPLACE_URL) throw new Error('MARKETPLACE_URL is required');
 if (!DRY_RUN && (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID)) {
   throw new Error('TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are required');
 }
@@ -57,7 +58,7 @@ function passesFilters(item) {
 
 async function sendTelegram(item) {
   const text = [
-    '🚨 إعلان Marketplace جديد',
+    '🚗 إعلان سيارة جديد على Marketplace',
     '',
     `📌 ${item.title || 'بدون عنوان'}`,
     item.priceText ? `💰 ${item.priceText}` : '',
@@ -170,5 +171,6 @@ for (const item of items.reverse()) {
 const compactSeen = [...seen].slice(-3000);
 await fs.writeFile(seenPath, JSON.stringify(compactSeen, null, 2));
 
+console.log(`Watching: ${MARKETPLACE_URL}`);
 console.log(`Found ${items.length} filtered listings; sent ${sentCount} new listings.`);
 await browser.close();
