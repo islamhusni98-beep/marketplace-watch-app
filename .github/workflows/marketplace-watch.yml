@@ -25,7 +25,8 @@ jobs:
       EXCLUDE_KEYWORDS: ${{ vars.EXCLUDE_KEYWORDS }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: '@marketpalacebedo'
-      FB_COOKIES_JSON: ${{ secrets.FB_COOKIES_JSON }}
+      FB_C_USER: ${{ secrets.FB_C_USER }}
+      FB_XS: ${{ secrets.FB_XS }}
 
     steps:
       - name: Checkout
