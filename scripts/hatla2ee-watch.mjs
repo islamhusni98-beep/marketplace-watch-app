@@ -18,6 +18,7 @@ const SEARCHES = [
 const TELEGRAM_BOT_TOKEN=process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID=process.env.TELEGRAM_CHAT_ID;
 const MAX_ITEMS=Number(process.env.MAX_ITEMS||60);
+const PER_SEARCH_LIMIT=25;
 if(!TELEGRAM_BOT_TOKEN||!TELEGRAM_CHAT_ID) throw new Error('Telegram config missing');
 
 const dataDir=path.resolve('data');
@@ -31,6 +32,30 @@ function latinDigits(s=''){return s.replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'
 function norm(s=''){return latinDigits(s).toLowerCase().replace(/[\-_]/g,' ').replace(/\s+/g,' ').trim()}
 function extractYear(text=''){const years=(latinDigits(text).match(/(?:19|20)\d{2}/g)||[]).map(Number);return years.find(v=>v>=1990&&v<=2030)||null}
 function isManual(text=''){return /manual|man\.?|مانيوال|يدوي|عادي/i.test(norm(text))}
+
+async function sortNewest(page){
+  let sorted=false;
+  try{
+    const selects=page.locator('select');
+    for(let i=0;i<await selects.count();i++){
+      const s=selects.nth(i);
+      const opts=await s.locator('option').evaluateAll(options=>options.map(o=>({text:(o.textContent||'').trim(),value:o.value})));
+      const match=opts.find(o=>/newest|latest|recent|date.*new|new.*date/i.test(o.text));
+      if(match){await s.selectOption(match.value);await page.waitForTimeout(1200);sorted=true;break;}
+    }
+  }catch{}
+  if(!sorted){
+    try{
+      const order=page.getByText(/order by/i).first();
+      if(await order.isVisible().catch(()=>false)){
+        await order.click();
+        const newest=page.getByText(/newest|latest|recently added|most recent/i).first();
+        if(await newest.isVisible().catch(()=>false)){await newest.click();await page.waitForTimeout(1200);sorted=true;}
+      }
+    }catch{}
+  }
+  return sorted;
+}
 
 async function sendTelegram(i){
   const text=['🚗 إعلان سيارة مستعملة جديد','🟣 التصنيف: TODAY','🌐 المصدر: Hatla2ee','',`🎯 ${i.target.name} ${i.target.year}`,`📌 ${i.title}`,`💰 السعر: ${i.priceText||'غير ظاهر'}`,`📅 تاريخ النشر: ${i.postedOn}`,`📍 المكان: ${i.location||'Giza'}`,`🔗 رابط الإعلان: ${i.url}`].join('\n');
@@ -46,9 +71,10 @@ for(const [label,url,minYear,manualOnly] of SEARCHES){
   const p=await context.newPage();
   try{
     await p.goto(url,{waitUntil:'domcontentloaded',timeout:60000});
-    await p.waitForTimeout(1500);
-    for(let i=0;i<2;i++){await p.mouse.wheel(0,1800);await p.waitForTimeout(300)}
-    const found=await p.locator('a[href*="/en/car/"]').evaluateAll(links=>{
+    await p.waitForTimeout(1000);
+    const sorted=await sortNewest(p);
+    for(let i=0;i<2;i++){await p.mouse.wheel(0,1800);await p.waitForTimeout(250)}
+    const found=await p.locator('a[href*="/en/car/"]').evaluateAll((links,limit)=>{
       const out=[],s=new Set();
       for(const a of links){
         const href=a.href||'';
@@ -58,13 +84,14 @@ for(const [label,url,minYear,manualOnly] of SEARCHES){
         if(!id||s.has(id)) continue;
         s.add(id);
         out.push({id,href:clean,title:(a.innerText||'').trim()});
+        if(out.length>=limit) break;
       }
       return out;
-    });
+    },PER_SEARCH_LIMIT);
     for(const c of found){
       if(!candidates.has(c.id)) candidates.set(c.id,{...c,sourceSearch:label,minYear,manualOnly});
     }
-    console.log(`Hatla2ee Giza search ${label}: ${found.length}`);
+    console.log(`Hatla2ee Giza search ${label}: ${found.length}; newestSort=${sorted}`);
   }catch(e){console.warn(`Hatla2ee search ${label} failed: ${e.message}`)}finally{await p.close()}
 }
 
@@ -74,7 +101,7 @@ for(const c of unseen.slice(0,MAX_ITEMS*SEARCHES.length)){
   const page=await context.newPage();
   try{
     await page.goto(c.href,{waitUntil:'domcontentloaded',timeout:60000});
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(400);
     inspected++;
     const body=(await page.locator('body').innerText().catch(()=>''))||'';
     const title=(await page.locator('h1').first().innerText().catch(()=>''))||c.title||c.sourceSearch;
