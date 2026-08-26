@@ -5,7 +5,6 @@ import path from 'node:path';
 const SOURCES = [
   { name: 'Facebook Marketplace', url: process.env.MARKETPLACE_URL || 'https://www.facebook.com/marketplace/giza/vehicles?daysSinceListed=1&sortBy=creation_time_descend', type: 'facebook' },
   { name: 'Dubizzle', url: process.env.DUBIZZLE_URL || 'https://www.dubizzle.com.eg/vehicles/cars-for-sale/', type: 'dubizzle' },
-  { name: 'Hatla2ee', url: process.env.HATLA2EE_URL || 'https://eg.hatla2ee.com/en/car/city/giza', type: 'hatla2ee' },
 ];
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -37,33 +36,36 @@ function listingId(source,url='') {
   const c = cleanUrl(url);
   const fb = c.match(/\/marketplace\/item\/(\d+)/)?.[1];
   const d = c.match(/ID(\d+)/i)?.[1];
-  const h = c.match(/\/(\d+)\/?$/)?.[1];
-  return `${source}:${fb || d || h || c}`;
+  return `${source}:${fb || d || c}`;
 }
 function isGiza(t='') { return /giza|الجيزة|جيزة|haram|هرم|dokki|دقي|mohandessin|مهندسين|agouza|عجوزة|6 october|october|اكتوبر|zayed|زايد|faisal|فيصل|imbaba|امبابة/i.test(t); }
 function ageHours(text='') {
   if (!text) return null;
   const t = text.toLowerCase();
-  if (/just now|الآن|today|اليوم/.test(t)) return 0;
+  if (/just now|today|الآن|اليوم/.test(t)) return 0;
+  if (/\b(?:a|an|one)\s+minute\b/.test(t)) return 1/60;
+  if (/\b(?:a|an|one)\s+hour\b/.test(t)) return 1;
+  if (/\b(?:a|an|one)\s+day\b|yesterday|أمس/.test(t)) return 24;
   let m = t.match(/(\d+)\s*(?:min|mins|minute|minutes|دقيقة|دقائق)/); if (m) return Number(m[1]) / 60;
   m = t.match(/(\d+)\s*(?:hr|hrs|hour|hours|ساعة|ساعات)/); if (m) return Number(m[1]);
-  if (/yesterday|أمس/.test(t)) return 24;
   m = t.match(/(\d+)\s*(?:day|days|يوم|أيام)/); if (m) return Number(m[1]) * 24;
   return null;
 }
 function heat(age) { if (age < 8) return '🔥 HOT'; if (age < 16) return '🟠 WARM'; return '🔵 COLD'; }
-function looksNew(text='') { return /brand new|new car|zero km|0 km|زيرو|جديدة|جديد/i.test(text); }
-function passesFilters(i) {
-  if (i.price !== null && MIN_PRICE && i.price < MIN_PRICE) return false;
-  if (i.price !== null && MAX_PRICE && i.price > MAX_PRICE) return false;
-  if (i.location && !isGiza(i.location)) return false;
-  if (looksNew(`${i.title} ${i.rawText || ''}`)) return false;
+function looksNew(text='') { return /brand new|new car|zero km|0 km|زيرو|جديدة|سيارة جديدة/i.test(text); }
+function rejectionReason(i) {
+  if (i.price !== null && MIN_PRICE && i.price < MIN_PRICE) return 'below_min_price';
+  if (i.price !== null && MAX_PRICE && i.price > MAX_PRICE) return 'above_max_price';
+  if (i.location && !isGiza(i.location)) return 'outside_giza';
+  if (looksNew(`${i.title} ${i.rawText || ''}`)) return 'looks_new_not_used';
   const a = ageHours(i.listedAgo);
-  if (a === null || a > 24) return false;
+  if (a === null) return 'age_not_found';
+  if (a > 24) return 'older_than_24h';
   i.ageHours = a;
   i.heat = heat(a);
-  return true;
+  return null;
 }
+function passesFilters(i) { return rejectionReason(i) === null; }
 
 async function sendTelegram(i) {
   const text = [
@@ -109,16 +111,15 @@ async function collectFacebookCandidates(context, source) {
 async function readFacebookDetail(context, candidate) {
   const page = await context.newPage();
   await page.goto(candidate.href, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(2200);
   const body = (await page.locator('body').innerText().catch(() => '')) || '';
-  const title = (await page.locator('h1').first().innerText().catch(() => '')) || 'Facebook listing';
+  const lines = body.split('\n').map(x => x.trim()).filter(Boolean);
+  const title = (await page.locator('h1').first().innerText().catch(() => '')) || lines.find(x => /\b\d{4}\b/.test(x)) || 'Facebook listing';
   const priceText = body.match(/(?:EGP|ج\.م)\s*[0-9][0-9,.]*/i)?.[0] || body.match(/[0-9][0-9,.]*\s*(?:EGP|ج\.م)/i)?.[0] || '';
-  const listedAgo = body.match(/Listed\s+(?:just now|today|yesterday|\d+\s*(?:min|mins|minute|minutes|hr|hrs|hour|hours|day|days)\s*ago)(?:\s+in\s+[^\n]+)?/i)?.[0]
-    || body.match(/(?:just now|today|yesterday|\d+\s*(?:min|mins|minute|minutes|hr|hrs|hour|hours|day|days)\s*ago)/i)?.[0]
-    || '';
-  const location = listedAgo.match(/\bin\s+(.+)$/i)?.[1]?.trim()
-    || body.split('\n').find(x => isGiza(x))
-    || '';
+  const listedLine = lines.find(x => /\bListed\b/i.test(x) && /ago|today|yesterday|just now/i.test(x)) || '';
+  const timeOnly = body.match(/(?:about\s+)?(?:just now|today|yesterday|(?:a|an|one)\s+(?:minute|hour|day)\s+ago|\d+\s*(?:min|mins|minute|minutes|hr|hrs|hour|hours|day|days)\s*ago)/i)?.[0] || '';
+  const listedAgo = listedLine || timeOnly;
+  const location = listedLine.match(/\bin\s+(.+)$/i)?.[1]?.trim() || lines.find(x => isGiza(x)) || '';
   await page.close();
   return {
     id: `Facebook Marketplace:${candidate.id}`,
@@ -133,19 +134,16 @@ async function readFacebookDetail(context, candidate) {
   };
 }
 
-async function scrapeGeneric(context, source) {
+async function scrapeDubizzle(context, source) {
   const p = await context.newPage();
   await p.goto(source.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await p.waitForTimeout(4000);
   for (let i = 0; i < 3; i++) { await p.mouse.wheel(0, 1800); await p.waitForTimeout(800); }
-  const selector = source.type === 'dubizzle' ? 'a[href*="/ad/"]' : 'a[href*="/en/car/"]';
-  const data = await p.locator(selector).evaluateAll((links, type) => {
+  const data = await p.locator('a[href*="/ad/"]').evaluateAll((links) => {
     const out = [], used = new Set();
-    const time = /(?:just now|today|yesterday|\d+\s*(?:min|mins|minute|minutes|hr|hrs|hour|hours|day|days)\s*ago|\d+\s*(?:دقيقة|دقائق|ساعة|ساعات|يوم|أيام)|الآن|اليوم|أمس)/i;
+    const time = /(?:just now|today|yesterday|\d+\s*(?:min|mins|minute|minutes|hr|hrs|hour|hours|day|days)\s*ago)/i;
     for (const a of links) {
-      if (!a.href || used.has(a.href)) continue;
-      if (type === 'dubizzle' && !/ID\d+\.html/i.test(a.href)) continue;
-      if (type === 'hatla2ee' && !/\/en\/car\/[^/]+\/[^/]+\/\d+\/?$/i.test(a.href)) continue;
+      if (!a.href || used.has(a.href) || !/ID\d+\.html/i.test(a.href)) continue;
       used.add(a.href);
       let node = a, txt = '';
       for (let i = 0; i < 6 && node; i++, node = node.parentElement) {
@@ -153,14 +151,14 @@ async function scrapeGeneric(context, source) {
         if (c.length > 5 && c.length < 1500) { txt = c; if (/EGP|ج\.م/i.test(c)) break; }
       }
       const lines = txt.split('\n').map(x => x.trim()).filter(Boolean);
-      const priceText = lines.find(x => /EGP|ج\.م|[$€£]/i.test(x)) || '';
+      const priceText = lines.find(x => /EGP|ج\.م/i.test(x)) || '';
       const listedAgo = lines.find(x => time.test(x)) || '';
       const location = lines.find(x => /giza|haram|dokki|mohandessin|agouza|october|zayed|faisal|imbaba|الجيزة|هرم|دقي|مهندسين|عجوزة|اكتوبر|زايد|فيصل|امبابة/i.test(x)) || '';
-      const title = lines.find(x => x !== priceText && x !== listedAgo && x !== location && x.length > 3) || a.innerText || `${type} listing`;
+      const title = lines.find(x => x !== priceText && x !== listedAgo && x !== location && x.length > 3) || a.innerText || 'Dubizzle listing';
       out.push({ href: a.href, title, priceText, listedAgo, location, rawText: txt });
     }
     return out;
-  }, source.type);
+  });
   await p.close();
   return data;
 }
@@ -182,18 +180,29 @@ for (const source of SOURCES) {
       const uniqueUnseen = candidates.filter(c => !seen.has(`Facebook Marketplace:${c.id}`)).slice(0, MAX_ITEMS);
       console.log(`Facebook Marketplace: ${candidates.length} IDs collected; ${uniqueUnseen.length} unseen IDs to inspect`);
       const accepted = [];
+      const rejected = {};
+      let sampleCount = 0;
       for (const candidate of uniqueUnseen) {
         try {
           const item = await readFacebookDetail(context, candidate);
-          if (passesFilters(item)) accepted.push(item);
+          const reason = rejectionReason(item);
+          if (!reason) accepted.push(item);
+          else {
+            rejected[reason] = (rejected[reason] || 0) + 1;
+            if (sampleCount < 8) {
+              console.log(`FB reject ${candidate.id}: reason=${reason}; age="${item.listedAgo || 'NONE'}"; location="${item.location || 'NONE'}"; title="${item.title.slice(0,80)}"`);
+              sampleCount++;
+            }
+          }
         } catch (e) { console.warn(`Facebook item ${candidate.id} skipped: ${e.message}`); }
       }
+      console.log(`Facebook Marketplace rejection summary: ${JSON.stringify(rejected)}`);
       console.log(`Facebook Marketplace: ${accepted.length} accepted used <=24h listings`);
       allItems.push(...accepted);
       continue;
     }
 
-    const raw = await scrapeGeneric(context, source);
+    const raw = await scrapeDubizzle(context, source);
     const items = raw.map(x => ({
       id: listingId(source.name, x.href), source: source.name, url: cleanUrl(x.href), title: x.title,
       priceText: x.priceText, price: parsePrice(x.priceText), listedAgo: x.listedAgo, location: x.location, rawText: x.rawText,
