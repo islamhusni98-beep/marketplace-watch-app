@@ -27,38 +27,20 @@ await fs.mkdir(dataDir,{recursive:true});
 let seen=new Set();
 try{seen=new Set(JSON.parse(await fs.readFile(seenPath,'utf8')))}catch{}
 
-const cairoToday=new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Cairo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+const cairoFmt=new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Cairo',year:'numeric',month:'2-digit',day:'2-digit'});
+const now=new Date();
+const cairoToday=cairoFmt.format(now);
+const cairoYesterday=cairoFmt.format(new Date(now.getTime()-24*60*60*1000));
+const acceptedDates=new Set([cairoToday,cairoYesterday]);
+
 function latinDigits(s=''){return s.replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d))}
 function norm(s=''){return latinDigits(s).toLowerCase().replace(/[\-_]/g,' ').replace(/\s+/g,' ').trim()}
 function extractYear(text=''){const years=(latinDigits(text).match(/(?:19|20)\d{2}/g)||[]).map(Number);return years.find(v=>v>=1990&&v<=2030)||null}
 function isManual(text=''){return /manual|man\.?|مانيوال|يدوي|عادي/i.test(norm(text))}
 
-async function sortNewest(page){
-  let sorted=false;
-  try{
-    const selects=page.locator('select');
-    for(let i=0;i<await selects.count();i++){
-      const s=selects.nth(i);
-      const opts=await s.locator('option').evaluateAll(options=>options.map(o=>({text:(o.textContent||'').trim(),value:o.value})));
-      const match=opts.find(o=>/newest|latest|recent|date.*new|new.*date/i.test(o.text));
-      if(match){await s.selectOption(match.value);await page.waitForTimeout(1200);sorted=true;break;}
-    }
-  }catch{}
-  if(!sorted){
-    try{
-      const order=page.getByText(/order by/i).first();
-      if(await order.isVisible().catch(()=>false)){
-        await order.click();
-        const newest=page.getByText(/newest|latest|recently added|most recent/i).first();
-        if(await newest.isVisible().catch(()=>false)){await newest.click();await page.waitForTimeout(1200);sorted=true;}
-      }
-    }catch{}
-  }
-  return sorted;
-}
-
 async function sendTelegram(i){
-  const text=['🚗 إعلان سيارة مستعملة جديد','🟣 التصنيف: TODAY','🌐 المصدر: Hatla2ee','',`🎯 ${i.target.name} ${i.target.year}`,`📌 ${i.title}`,`💰 السعر: ${i.priceText||'غير ظاهر'}`,`📅 تاريخ النشر: ${i.postedOn}`,`📍 المكان: ${i.location||'Giza'}`,`🔗 رابط الإعلان: ${i.url}`].join('\n');
+  const dayLabel=i.postedOn===cairoToday?'TODAY':'YESTERDAY';
+  const text=['🚗 إعلان سيارة مستعملة جديد',`🟣 التصنيف: ${dayLabel}`,'🌐 المصدر: Hatla2ee','',`🎯 ${i.target.name} ${i.target.year}`,`📌 ${i.title}`,`💰 السعر: ${i.priceText||'غير ظاهر'}`,`📅 تاريخ النشر: ${i.postedOn}`,`📍 المكان: ${i.location||'Giza'}`,`🔗 رابط الإعلان: ${i.url}`].join('\n');
   const r=await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:TELEGRAM_CHAT_ID,text,disable_web_page_preview:false})});
   if(!r.ok) throw new Error(`Telegram ${r.status}: ${await r.text()}`);
 }
@@ -71,8 +53,7 @@ for(const [label,url,minYear,manualOnly] of SEARCHES){
   const p=await context.newPage();
   try{
     await p.goto(url,{waitUntil:'domcontentloaded',timeout:60000});
-    await p.waitForTimeout(1000);
-    const sorted=await sortNewest(p);
+    await p.waitForTimeout(900);
     for(let i=0;i<2;i++){await p.mouse.wheel(0,1800);await p.waitForTimeout(250)}
     const found=await p.locator('a[href*="/en/car/"]').evaluateAll((links,limit)=>{
       const out=[],s=new Set();
@@ -91,13 +72,15 @@ for(const [label,url,minYear,manualOnly] of SEARCHES){
     for(const c of found){
       if(!candidates.has(c.id)) candidates.set(c.id,{...c,sourceSearch:label,minYear,manualOnly});
     }
-    console.log(`Hatla2ee Giza search ${label}: ${found.length}; newestSort=${sorted}`);
+    console.log(`Hatla2ee Giza search ${label}: ${found.length}`);
   }catch(e){console.warn(`Hatla2ee search ${label} failed: ${e.message}`)}finally{await p.close()}
 }
 
-let sent=0,targeted=0,inspected=0,todayCount=0,wrongYear=0,notUsed=0,manualRejected=0;
-const unseen=[...candidates.values()].filter(c=>!seen.has(`Hatla2ee:${c.id}`));
-for(const c of unseen.slice(0,MAX_ITEMS*SEARCHES.length)){
+let sent=0,targeted=0,inspected=0,acceptedDateCount=0,todayCount=0,yesterdayCount=0,wrongYear=0,notUsed=0,manualRejected=0,duplicateSkipped=0;
+const all=[...candidates.values()];
+for(const c of all.slice(0,MAX_ITEMS*SEARCHES.length)){
+  const id=`Hatla2ee:${c.id}`;
+  if(seen.has(id)){duplicateSkipped++;continue}
   const page=await context.newPage();
   try{
     await page.goto(c.href,{waitUntil:'domcontentloaded',timeout:60000});
@@ -112,11 +95,11 @@ for(const c of unseen.slice(0,MAX_ITEMS*SEARCHES.length)){
     const condition=body.match(/Condition\s*\n\s*([^\n]+)/i)?.[1]?.trim()||body.match(/الحالة\s*\n\s*([^\n]+)/i)?.[1]?.trim()||'';
     if(condition&&!/used|مستعمل/i.test(condition)){notUsed++;continue}
     const postedOn=body.match(/Posted On\s*\n\s*(\d{4}-\d{2}-\d{2})/i)?.[1]||body.match(/تاريخ النشر\s*\n\s*(\d{4}-\d{2}-\d{2})/i)?.[1]||'';
-    if(postedOn!==cairoToday) continue;
-    todayCount++;
+    if(!acceptedDates.has(postedOn)) continue;
+    acceptedDateCount++;
+    if(postedOn===cairoToday) todayCount++; else yesterdayCount++;
     const location=body.match(/Location\s*\n\s*([^\n]+)/i)?.[1]?.trim()||body.match(/الموقع\s*\n\s*([^\n]+)/i)?.[1]?.trim()||'Giza';
     const priceText=body.match(/[0-9٠-٩][0-9٠-٩,٬.]*\s*(?:EGP|ج\.م)/i)?.[0]||'';
-    const id=`Hatla2ee:${c.id}`;
     await sendTelegram({id,url:c.href,title,postedOn,location,priceText,target:{name:c.sourceSearch,year}});
     seen.add(id);
     sent++;
@@ -124,5 +107,5 @@ for(const c of unseen.slice(0,MAX_ITEMS*SEARCHES.length)){
 }
 
 await fs.writeFile(seenPath,JSON.stringify([...seen].slice(-5000),null,2));
-console.log(`Hatla2ee total=${candidates.size}, unseen=${unseen.length}, inspected=${inspected}, targetCars=${targeted}, postedToday=${todayCount}, wrongYear=${wrongYear}, notUsed=${notUsed}, manualRejected=${manualRejected}, sent=${sent}`);
+console.log(`Hatla2ee total=${candidates.size}, inspected=${inspected}, targetCars=${targeted}, acceptedDate=${acceptedDateCount}, today=${todayCount}, yesterday=${yesterdayCount}, duplicates=${duplicateSkipped}, wrongYear=${wrongYear}, notUsed=${notUsed}, manualRejected=${manualRejected}, sent=${sent}`);
 await browser.close();
