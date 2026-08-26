@@ -10,7 +10,7 @@ const MAX_ITEMS = Number(process.env.MAX_ITEMS || 30);
 if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) throw new Error('Telegram config missing');
 
 const dataDir = path.resolve('data');
-const seenPath = path.join(dataDir, 'seen.json');
+const seenPath = path.join(dataDir, 'seen-hatla2ee.json');
 await fs.mkdir(dataDir, { recursive: true });
 let seen = new Set();
 try { seen = new Set(JSON.parse(await fs.readFile(seenPath, 'utf8'))); } catch {}
