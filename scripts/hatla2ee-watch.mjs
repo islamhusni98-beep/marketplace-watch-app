@@ -3,25 +3,99 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const SEARCHES = [
-  ['Nissan Sunny','https://eg.hatla2ee.com/en/car/nissan/sunny'],
-  ['Chevrolet Aveo','https://eg.hatla2ee.com/en/car/chevrolet/aveo'],
-  ['Chevrolet New Optra','https://eg.hatla2ee.com/en/car/chevrolet/optra'],
-  ['Hyundai Accent RB','https://eg.hatla2ee.com/en/car/hyundai/accent-rb'],
-  ['BYD F3','https://eg.hatla2ee.com/en/car/byd/f3'],
-  ['Hyundai Elantra HD','https://eg.hatla2ee.com/en/car/hyundai/elantra-hd'],
-  ['Hyundai Verna','https://eg.hatla2ee.com/en/car/hyundai/verna'],
-  ['Chevrolet Lanos','https://eg.hatla2ee.com/en/car/chevrolet/lanos'],
-  ['Chery Arrizo 5','https://eg.hatla2ee.com/en/car/chery/arrizo-5'],
-  ['Dayun Lanos','https://eg.hatla2ee.com/en/car/dayun/lanos'],
+  ['Nissan Sunny','https://eg.hatla2ee.com/en/car/city/giza/nissan/sunny',2016,false],
+  ['Chevrolet Aveo','https://eg.hatla2ee.com/en/car/city/giza/chevrolet/aveo',2016,false],
+  ['Chevrolet New Optra','https://eg.hatla2ee.com/en/car/city/giza/chevrolet/optra',2016,false],
+  ['Hyundai Accent RB','https://eg.hatla2ee.com/en/car/city/giza/hyundai/accent-rb',2016,false],
+  ['BYD F3','https://eg.hatla2ee.com/en/car/city/giza/byd/f3',2021,false],
+  ['Hyundai Elantra HD','https://eg.hatla2ee.com/en/car/city/giza/hyundai/elantra-hd',2017,false],
+  ['Hyundai Verna','https://eg.hatla2ee.com/en/car/city/giza/hyundai/verna',2016,false],
+  ['Chevrolet Lanos','https://eg.hatla2ee.com/en/car/city/giza/chevrolet/lanos',2016,false],
+  ['Chery Arrizo 5','https://eg.hatla2ee.com/en/car/city/giza/chery/arrizo-5',2019,true],
+  ['Dayun Lanos','https://eg.hatla2ee.com/en/car/city/giza/dayun/lanos',2016,false],
 ];
-const TELEGRAM_BOT_TOKEN=process.env.TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID=process.env.TELEGRAM_CHAT_ID,MAX_ITEMS=Number(process.env.MAX_ITEMS||60);if(!TELEGRAM_BOT_TOKEN||!TELEGRAM_CHAT_ID)throw new Error('Telegram config missing');
-const dataDir=path.resolve('data'),seenPath=path.join(dataDir,'seen-hatla2ee.json');await fs.mkdir(dataDir,{recursive:true});let seen=new Set();try{seen=new Set(JSON.parse(await fs.readFile(seenPath,'utf8')))}catch{}const cairoToday=new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Cairo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+
+const TELEGRAM_BOT_TOKEN=process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID=process.env.TELEGRAM_CHAT_ID;
+const MAX_ITEMS=Number(process.env.MAX_ITEMS||60);
+if(!TELEGRAM_BOT_TOKEN||!TELEGRAM_CHAT_ID) throw new Error('Telegram config missing');
+
+const dataDir=path.resolve('data');
+const seenPath=path.join(dataDir,'seen-hatla2ee.json');
+await fs.mkdir(dataDir,{recursive:true});
+let seen=new Set();
+try{seen=new Set(JSON.parse(await fs.readFile(seenPath,'utf8')))}catch{}
+
+const cairoToday=new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Cairo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 function latinDigits(s=''){return s.replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d))}
 function norm(s=''){return latinDigits(s).toLowerCase().replace(/[\-_]/g,' ').replace(/\s+/g,' ').trim()}
-function targetCar(text=''){const t=norm(text),years=(t.match(/(?:19|20)\d{2}/g)||[]).map(Number),y=years.find(v=>v>=1990&&v<=2030);let name,min,max=2026,manual=false;if(/sunny|صني/.test(t)){name='Nissan Sunny';min=2016}else if(/aveo|افيو|أفيو/.test(t)){name='Chevrolet Aveo';min=2016}else if(/(?:new\s*)?optra|اوبترا|أوبترا/.test(t)){name='Chevrolet New Optra';min=2016}else if(/accent\s*rb|اكسنت\s*(?:ار\s*بي|آر\s*بي|rb)|أكسنت\s*(?:ار\s*بي|آر\s*بي|rb)/.test(t)){name='Hyundai Accent RB';min=2016}else if(/(?:\bbyd\b|بي\s*واي\s*دي|بى\s*واى\s*دى).*(?:\bf3\b|اف\s*3|إف\s*3)|(?:\bf3\b|اف\s*3|إف\s*3).*(?:\bbyd\b|بي\s*واي\s*دي|بى\s*واى\s*دى)/.test(t)){name='BYD F3';min=2021}else if(/elantra\s*hd|النترا\s*(?:اتش\s*دي|إتش\s*دي|hd)|إلنترا\s*(?:اتش\s*دي|إتش\s*دي|hd)/.test(t)){name='Hyundai Elantra HD';min=2017}else if(/verna|فيرنا/.test(t)){name='Hyundai Verna';min=2016}else if(/(?:dayun|دايون).*(?:lanos|لانوس)|(?:lanos|لانوس).*(?:dayun|دايون)/.test(t)){name='Dayun Lanos';min=2016}else if(/lanos|لانوس/.test(t)){name='Chevrolet Lanos';min=2016}else if(/arrizo\s*5|اريزو\s*(?:5|فايف)|أريزو\s*(?:5|فايف)/.test(t)){name='Chery Arrizo 5';min=2019;manual=true}if(!name||!y||y<min||y>max)return null;if(manual&&!/manual|man\.?|مانيوال|يدوي|عادي/.test(t))return null;return{name,year:y}}
-function isGiza(t=''){return /giza|الجيزة|جيزة|sheikh zayed|الشيخ زايد|zayed|زايد|6 october|october|اكتوبر|أكتوبر|haram|الهرم|هرم|dokki|الدقي|دقي|mohandessin|المهندسين|مهندسين|agouza|العجوزة|عجوزة|faisal|فيصل|imbaba|امبابة|إمبابة|pyramids gardens|حدائق الاهرام|حدائق الأهرام|hadayek october|حدائق اكتوبر|حدائق أكتوبر/i.test(norm(t))}
-async function sendTelegram(i){const text=['🚗 إعلان سيارة مستعملة جديد','🟣 التصنيف: TODAY','🌐 المصدر: Hatla2ee','',`🎯 ${i.target.name} ${i.target.year}`,`📌 ${i.title}`,`💰 السعر: ${i.priceText||'غير ظاهر'}`,`📅 تاريخ النشر: ${i.postedOn}`,`📍 المكان: ${i.location}`,`🔗 رابط الإعلان: ${i.url}`].join('\n');const r=await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:TELEGRAM_CHAT_ID,text,disable_web_page_preview:false})});if(!r.ok)throw new Error(`Telegram ${r.status}: ${await r.text()}`)}
-const browser=await chromium.launch({headless:true}),context=await browser.newContext({locale:'en-US',userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36'});const candidates=new Map();
-for(const [label,url] of SEARCHES){const p=await context.newPage();try{await p.goto(url,{waitUntil:'domcontentloaded',timeout:60000});await p.waitForTimeout(1500);for(let i=0;i<3;i++){await p.mouse.wheel(0,1800);await p.waitForTimeout(350)}const found=await p.locator('a[href*="/en/car/"]').evaluateAll(links=>{const out=[],s=new Set();for(const a of links){const href=a.href||'';if(!/\/en\/car\/[^/]+\/[^/]+\/\d+\/?(?:\?.*)?$/i.test(href))continue;const clean=href.split('?')[0].split('#')[0],id=clean.match(/\/(\d+)\/?$/)?.[1];if(!id||s.has(id))continue;s.add(id);out.push({id,href:clean})}return out});for(const c of found)if(!candidates.has(c.id))candidates.set(c.id,{...c,sourceSearch:label});console.log(`Hatla2ee search ${label}: ${found.length}`)}catch(e){console.warn(`Hatla2ee search ${label} failed: ${e.message}`)}finally{await p.close()}}
-let sent=0,targeted=0,inspected=0;for(const c of [...candidates.values()].filter(c=>!seen.has(`Hatla2ee:${c.id}`)).slice(0,MAX_ITEMS*SEARCHES.length)){const page=await context.newPage();try{await page.goto(c.href,{waitUntil:'domcontentloaded',timeout:60000});await page.waitForTimeout(650);inspected++;const body=(await page.locator('body').innerText().catch(()=>''))||'',title=(await page.locator('h1').first().innerText().catch(()=>''))||c.sourceSearch,normalized=norm(body),condition=body.match(/Condition\s*\n\s*([^\n]+)/i)?.[1]?.trim()||body.match(/الحالة\s*\n\s*([^\n]+)/i)?.[1]?.trim()||'',postedOn=body.match(/Posted On\s*\n\s*(\d{4}-\d{2}-\d{2})/i)?.[1]||body.match(/تاريخ النشر\s*\n\s*(\d{4}-\d{2}-\d{2})/i)?.[1]||'',location=body.match(/Location\s*\n\s*([^\n]+)/i)?.[1]?.trim()||body.match(/الموقع\s*\n\s*([^\n]+)/i)?.[1]?.trim()||'',priceText=body.match(/[0-9٠-٩][0-9٠-٩,٬.]*\s*(?:EGP|ج\.م)/i)?.[0]||'',target=targetCar(`${title}\n${body}`);if(!target)continue;targeted++;if(condition&&!/used|مستعمل/i.test(condition))continue;if(postedOn!==cairoToday)continue;if(!isGiza(`${location}\n${body}`))continue;const id=`Hatla2ee:${c.id}`;await sendTelegram({id,url:c.href,title,postedOn,location:location||'Giza',priceText,target});seen.add(id);sent++}catch(e){console.warn(`Hatla2ee ${c.id}: ${e.message}`)}finally{await page.close()}}
-await fs.writeFile(seenPath,JSON.stringify([...seen].slice(-5000),null,2));console.log(`Hatla2ee total=${candidates.size}, inspected=${inspected}, targetCars=${targeted}, sent=${sent}`);await browser.close();
+function extractYear(text=''){const years=(latinDigits(text).match(/(?:19|20)\d{2}/g)||[]).map(Number);return years.find(v=>v>=1990&&v<=2030)||null}
+function isManual(text=''){return /manual|man\.?|مانيوال|يدوي|عادي/i.test(norm(text))}
+
+async function sendTelegram(i){
+  const text=['🚗 إعلان سيارة مستعملة جديد','🟣 التصنيف: TODAY','🌐 المصدر: Hatla2ee','',`🎯 ${i.target.name} ${i.target.year}`,`📌 ${i.title}`,`💰 السعر: ${i.priceText||'غير ظاهر'}`,`📅 تاريخ النشر: ${i.postedOn}`,`📍 المكان: ${i.location||'Giza'}`,`🔗 رابط الإعلان: ${i.url}`].join('\n');
+  const r=await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:TELEGRAM_CHAT_ID,text,disable_web_page_preview:false})});
+  if(!r.ok) throw new Error(`Telegram ${r.status}: ${await r.text()}`);
+}
+
+const browser=await chromium.launch({headless:true});
+const context=await browser.newContext({locale:'en-US',userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36'});
+const candidates=new Map();
+
+for(const [label,url,minYear,manualOnly] of SEARCHES){
+  const p=await context.newPage();
+  try{
+    await p.goto(url,{waitUntil:'domcontentloaded',timeout:60000});
+    await p.waitForTimeout(1500);
+    for(let i=0;i<2;i++){await p.mouse.wheel(0,1800);await p.waitForTimeout(300)}
+    const found=await p.locator('a[href*="/en/car/"]').evaluateAll(links=>{
+      const out=[],s=new Set();
+      for(const a of links){
+        const href=a.href||'';
+        if(!/\/en\/car\/[^/]+\/[^/]+\/\d+\/?(?:\?.*)?$/i.test(href)) continue;
+        const clean=href.split('?')[0].split('#')[0];
+        const id=clean.match(/\/(\d+)\/?$/)?.[1];
+        if(!id||s.has(id)) continue;
+        s.add(id);
+        out.push({id,href:clean,title:(a.innerText||'').trim()});
+      }
+      return out;
+    });
+    for(const c of found){
+      if(!candidates.has(c.id)) candidates.set(c.id,{...c,sourceSearch:label,minYear,manualOnly});
+    }
+    console.log(`Hatla2ee Giza search ${label}: ${found.length}`);
+  }catch(e){console.warn(`Hatla2ee search ${label} failed: ${e.message}`)}finally{await p.close()}
+}
+
+let sent=0,targeted=0,inspected=0,todayCount=0,wrongYear=0,notUsed=0,manualRejected=0;
+const unseen=[...candidates.values()].filter(c=>!seen.has(`Hatla2ee:${c.id}`));
+for(const c of unseen.slice(0,MAX_ITEMS*SEARCHES.length)){
+  const page=await context.newPage();
+  try{
+    await page.goto(c.href,{waitUntil:'domcontentloaded',timeout:60000});
+    await page.waitForTimeout(500);
+    inspected++;
+    const body=(await page.locator('body').innerText().catch(()=>''))||'';
+    const title=(await page.locator('h1').first().innerText().catch(()=>''))||c.title||c.sourceSearch;
+    const year=extractYear(title)||extractYear(body);
+    if(!year||year<c.minYear||year>2026){wrongYear++;continue}
+    targeted++;
+    if(c.manualOnly&&!isManual(`${title}\n${body}`)){manualRejected++;continue}
+    const condition=body.match(/Condition\s*\n\s*([^\n]+)/i)?.[1]?.trim()||body.match(/الحالة\s*\n\s*([^\n]+)/i)?.[1]?.trim()||'';
+    if(condition&&!/used|مستعمل/i.test(condition)){notUsed++;continue}
+    const postedOn=body.match(/Posted On\s*\n\s*(\d{4}-\d{2}-\d{2})/i)?.[1]||body.match(/تاريخ النشر\s*\n\s*(\d{4}-\d{2}-\d{2})/i)?.[1]||'';
+    if(postedOn!==cairoToday) continue;
+    todayCount++;
+    const location=body.match(/Location\s*\n\s*([^\n]+)/i)?.[1]?.trim()||body.match(/الموقع\s*\n\s*([^\n]+)/i)?.[1]?.trim()||'Giza';
+    const priceText=body.match(/[0-9٠-٩][0-9٠-٩,٬.]*\s*(?:EGP|ج\.م)/i)?.[0]||'';
+    const id=`Hatla2ee:${c.id}`;
+    await sendTelegram({id,url:c.href,title,postedOn,location,priceText,target:{name:c.sourceSearch,year}});
+    seen.add(id);
+    sent++;
+  }catch(e){console.warn(`Hatla2ee ${c.id}: ${e.message}`)}finally{await page.close()}
+}
+
+await fs.writeFile(seenPath,JSON.stringify([...seen].slice(-5000),null,2));
+console.log(`Hatla2ee total=${candidates.size}, unseen=${unseen.length}, inspected=${inspected}, targetCars=${targeted}, postedToday=${todayCount}, wrongYear=${wrongYear}, notUsed=${notUsed}, manualRejected=${manualRejected}, sent=${sent}`);
+await browser.close();
