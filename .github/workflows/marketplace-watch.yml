@@ -5,10 +5,14 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '*/5 * * * *'
 
 permissions:
   contents: read
+
+concurrency:
+  group: marketplace-watch
+  cancel-in-progress: false
 
 jobs:
   dubizzle:
@@ -17,16 +21,13 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.62.1-noble
     timeout-minutes: 6
     env:
-      MAX_ITEMS: ${{ vars.MAX_ITEMS || '30' }}
+      MAX_ITEMS: ${{ vars.MAX_ITEMS || '60' }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: '@marketpalacebedo'
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install dependencies
-        run: npm install --no-audit --no-fund
-      - name: Restore Dubizzle seen
-        uses: actions/cache/restore@v4
+      - uses: actions/checkout@v4
+      - run: npm install --no-audit --no-fund
+      - uses: actions/cache/restore@v4
         with:
           path: data/seen-dubizzle.json
           key: dubizzle-seen-${{ github.run_id }}
@@ -34,8 +35,7 @@ jobs:
             dubizzle-seen-
       - name: Watch Dubizzle
         run: node scripts/dubizzle-watch.mjs
-      - name: Save Dubizzle seen
-        if: always()
+      - if: always()
         uses: actions/cache/save@v4
         with:
           path: data/seen-dubizzle.json
@@ -47,16 +47,13 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.62.1-noble
     timeout-minutes: 6
     env:
-      MAX_ITEMS: ${{ vars.MAX_ITEMS || '30' }}
+      MAX_ITEMS: ${{ vars.MAX_ITEMS || '60' }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: '@marketpalacebedo'
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install dependencies
-        run: npm install --no-audit --no-fund
-      - name: Restore Hatla2ee seen
-        uses: actions/cache/restore@v4
+      - uses: actions/checkout@v4
+      - run: npm install --no-audit --no-fund
+      - uses: actions/cache/restore@v4
         with:
           path: data/seen-hatla2ee.json
           key: hatla2ee-seen-${{ github.run_id }}
@@ -64,8 +61,7 @@ jobs:
             hatla2ee-seen-
       - name: Watch Hatla2ee
         run: node scripts/hatla2ee-watch.mjs
-      - name: Save Hatla2ee seen
-        if: always()
+      - if: always()
         uses: actions/cache/save@v4
         with:
           path: data/seen-hatla2ee.json
