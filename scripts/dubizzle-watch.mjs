@@ -14,6 +14,7 @@ function targetCar(text=''){const t=norm(text);const years=(t.match(/(?:19|20)\d
  else if(/(?:\bbyd\b|بي\s*واي\s*دي).*(?:\bf3\b|اف\s*3)|(?:\bf3\b|اف\s*3).*(?:\bbyd\b|بي\s*واي\s*دي)/.test(t)){name='BYD F3';min=2021}
  else if(/elantra\s*hd|النترا\s*(?:اتش\s*دي|hd)/.test(t)){name='Hyundai Elantra HD';min=2017}
  else if(/verna|فيرنا/.test(t)){name='Hyundai Verna';min=2016}
+ else if(/(?:dayun|دايون).*(?:lanos|لانوس)|(?:lanos|لانوس).*(?:dayun|دايون)/.test(t)){name='Dayun Lanos';min=2016}
  else if(/lanos|لانوس/.test(t)){name='Chevrolet Lanos';min=2016}
  else if(/arrizo\s*5|اريزو\s*(?:5|فايف)/.test(t)){name='Chery Arrizo 5';min=2019;manual=true}
  if(!name||!y||y<min||y>max)return null;if(manual&&!/manual|man\.?|مانيوال|يدوي/.test(t))return null;return{name,year:y}}
