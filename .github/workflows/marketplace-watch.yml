@@ -21,7 +21,7 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.62.1-noble
     timeout-minutes: 6
     env:
-      MAX_ITEMS: ${{ vars.MAX_ITEMS || '60' }}
+      MAX_ITEMS: ${{ vars.MAX_ITEMS || '150' }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: '@marketpalacebedo'
     steps:
@@ -34,7 +34,7 @@ jobs:
           restore-keys: |
             dubizzle-seen-
       - name: Watch Dubizzle
-        run: node scripts/dubizzle-watch.mjs
+        run: node scripts/dubizzle-wide.mjs
       - if: always()
         uses: actions/cache/save@v4
         with:
