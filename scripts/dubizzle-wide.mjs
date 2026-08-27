@@ -16,8 +16,8 @@ try{seen=new Set(JSON.parse(await fs.readFile(seenPath,'utf8')))}catch{}
 
 const norm=s=>(s||'').toLowerCase().replace(/[\-_]/g,' ').replace(/\s+/g,' ').trim();
 const isGiza=t=>/giza|الجيزة|جيزة|haram|هرم|dokki|دقي|mohandessin|مهندسين|agouza|عجوزة|6 october|october|اكتوبر|أكتوبر|zayed|زايد|faisal|فيصل|imbaba|امبابة|إمبابة|hadayek october|حدائق اكتوبر|حدائق أكتوبر|sheikh zayed|الشيخ زايد|maryotaya|مريوطية|moneeb|منيب|warraq|وراق|boulaq dakrour|بولاق الدكرور|omraneyah|العمرانية/i.test(norm(t));
-const isUsed=t=>/\bused\b|مستعمل|مستعملة|condition\s*:?\s*used|الحالة\s*:?\s*مستعمل/i.test(norm(t));
-const looksNew=t=>/brand new|new car|zero km|0 km|زيرو|condition\s*:?\s*new|الحالة\s*:?\s*جديد/i.test(norm(t));
+const explicitUsed=t=>/\bused\b|مستعمل|مستعملة|condition\s*:?\s*used|الحالة\s*:?\s*مستعمل|itemcondition[^\n]{0,80}usedcondition|vehiclecondition[^\n]{0,80}used/i.test(norm(t));
+const looksNew=t=>/brand new|new car|zero km|0 km|زيرو|condition\s*:?\s*new|الحالة\s*:?\s*جديد|itemcondition[^\n]{0,80}newcondition|vehiclecondition[^\n]{0,80}new/i.test(norm(t));
 
 function ageHours(t=''){
   t=norm(t);
@@ -25,7 +25,6 @@ function ageHours(t=''){
   let m=t.match(/(?:listed\s*)?(\d+)\s*(?:min|mins|minute|minutes|دقيقة|دقائق)\s*(?:ago|منذ)?/); if(m) return +m[1]/60;
   m=t.match(/(?:listed\s*)?(\d+)\s*(?:hr|hrs|hour|hours|ساعة|ساعات)\s*(?:ago|منذ)?/); if(m) return +m[1];
   if(/(?:listed\s*)?today|اليوم/.test(t)) return 0;
-  // "Yesterday" is intentionally ambiguous: could be >24h, so reject it under a strict 24h rule.
   if(/yesterday|أمس|امس/.test(t)) return null;
   m=t.match(/(?:listed\s*)?(\d+)\s*(?:day|days|يوم|أيام|ايام)\s*(?:ago|منذ)?/); return m?+m[1]*24:null;
 }
@@ -43,9 +42,17 @@ function extractLabelValue(body,labelRe){
   }
   return '';
 }
+function usedEvidence({body,structured,condition}){
+  const all=`${condition}\n${body}\n${structured}`;
+  if(looksNew(all)) return {used:false,source:'new-marker'};
+  if(explicitUsed(condition)) return {used:true,source:'condition-label'};
+  if(explicitUsed(structured)) return {used:true,source:'structured-data'};
+  if(explicitUsed(body)) return {used:true,source:'page-text'};
+  return {used:false,source:'missing'};
+}
 
 async function send(i){
-  const text=['🚗 إعلان سيارة مستعملة جديد',`⚡ التصنيف: ${heat(i.age)}`,'🌐 المصدر: Dubizzle','',`📌 ${i.title}`,i.year?`📅 السنة: ${i.year}`:'',`💰 السعر: ${i.price||'غير ظاهر'}`,`🕐 نازل من: ${i.ago}`,`📍 المكان: ${i.loc}`,`🔗 رابط الإعلان: ${i.url}`].filter(Boolean).join('\n');
+  const text=['🚗 إعلان سيارة مستعملة جديد',`⚡ التصنيف: ${heat(i.age)}`,'🌐 المصدر: Dubizzle','',`📌 ${i.title}`,i.year?`📅 السنة: ${i.year}`:'',`💰 السعر: ${i.price||'غير ظاهر'}`,`🕐 نازل من: ${i.ago}`,`📍 المكان: ${i.loc}`,`✅ تحقق المستعمل: ${i.usedSource}`,`🔗 رابط الإعلان: ${i.url}`].filter(Boolean).join('\n');
   const r=await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:CHAT,text,disable_web_page_preview:false})});
   if(!r.ok) throw new Error(`Telegram ${r.status}: ${await r.text()}`);
 }
@@ -71,6 +78,8 @@ const ads=await search.locator('a[href*="/ad/"]').evaluateAll((links,max)=>{
 await search.close();
 
 let sent=0,duplicates=0,inspected=0,conditionMissing=0,notUsed=0,locationMissing=0,outsideGiza=0,ageMissing=0,olderThan24h=0,detailErrors=0;
+const evidenceCounts={conditionLabel:0,structuredData:0,pageText:0};
+const missingSamples=[];
 for(const a of ads){
   const key=`Dubizzle:${a.id}`;
   if(seen.has(key)){duplicates++;continue}
@@ -80,6 +89,7 @@ for(const a of ads){
     await page.waitForTimeout(500);
     inspected++;
     const body=(await page.locator('body').innerText().catch(()=>''))||'';
+    const structured=(await page.locator('script[type="application/ld+json"],script#__NEXT_DATA__').allTextContents().catch(()=>[])).join('\n');
     const lines=body.split('\n').map(x=>x.trim()).filter(Boolean);
     const title=(await page.locator('h1').first().innerText().catch(()=>''))||lines[0]||'سيارة مستعملة';
     const price=pickLine(lines,/EGP|ج\.م/i);
@@ -88,20 +98,30 @@ for(const a of ads){
     const loc=extractLabelValue(body,/^(location|الموقع|المكان)$/i)||pickLine(lines,/giza|الجيزة|جيزة|haram|هرم|dokki|دقي|mohandessin|مهندسين|agouza|عجوزة|october|اكتوبر|أكتوبر|zayed|زايد|faisal|فيصل|imbaba|امبابة|إمبابة|warraq|وراق|العمرانية/i);
     const ago=pickLine(lines,/listed.*ago|ago$|منذ|today|اليوم|yesterday|أمس|امس/i);
 
-    if(!condition&&!isUsed(body)){conditionMissing++;continue}
-    if(looksNew(`${condition}\n${body}`)||!isUsed(`${condition}\n${body}`)){notUsed++;continue}
+    const evidence=usedEvidence({body,structured,condition});
+    if(evidence.source==='new-marker'){notUsed++;continue}
+    if(!evidence.used){
+      conditionMissing++;
+      if(missingSamples.length<8) missingSamples.push({id:a.id,title:title.slice(0,100),condition:condition||'',hasStructured:structured.length>0,url:a.url});
+      continue;
+    }
+    if(evidence.source==='condition-label') evidenceCounts.conditionLabel++;
+    else if(evidence.source==='structured-data') evidenceCounts.structuredData++;
+    else if(evidence.source==='page-text') evidenceCounts.pageText++;
+
     if(!loc){locationMissing++;continue}
     if(!isGiza(loc)){outsideGiza++;continue}
     const age=ageHours(ago);
     if(age===null){ageMissing++;continue}
     if(age>24){olderThan24h++;continue}
 
-    await send({url:a.url,title,price,year,ago,loc,age});
-    // Save only after Telegram confirms success.
+    await send({url:a.url,title,price,year,ago,loc,age,usedSource:evidence.source});
     seen.add(key); sent++;
   }catch(e){detailErrors++;console.warn(`Dubizzle ${a.id}: ${e.message}`)}finally{await page.close()}
 }
 
 await fs.writeFile(seenPath,JSON.stringify([...seen].slice(-5000),null,2));
 console.log(`Dubizzle collected=${ads.length}, duplicates=${duplicates}, inspected=${inspected}, conditionMissing=${conditionMissing}, notUsed=${notUsed}, locationMissing=${locationMissing}, outsideGiza=${outsideGiza}, ageMissing=${ageMissing}, olderThan24h=${olderThan24h}, detailErrors=${detailErrors}, sent=${sent}`);
+console.log(`Dubizzle usedEvidence conditionLabel=${evidenceCounts.conditionLabel}, structuredData=${evidenceCounts.structuredData}, pageText=${evidenceCounts.pageText}`);
+if(missingSamples.length) console.log(`Dubizzle conditionMissingSamples=${JSON.stringify(missingSamples)}`);
 await browser.close();
