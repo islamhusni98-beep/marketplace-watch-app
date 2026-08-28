@@ -6,13 +6,12 @@ const TARGETS = [
   ['Nissan Sunny','nissan/sunny',2016,false],
   ['Chevrolet Aveo','chevrolet/aveo',2016,false],
   ['Chevrolet New Optra','chevrolet/optra',2016,false],
-  ['Hyundai Accent RB','hyundai/accent-rb',2016,false],
+  ['Hyundai Accent RB','hyundai/Accent-RB',2016,false],
   ['BYD F3','byd/f3',2021,false],
-  ['Hyundai Elantra HD','hyundai/elantra-hd',2017,false],
+  ['Hyundai Elantra HD','hyundai/Elantra-HD',2017,false],
   ['Hyundai Verna','hyundai/verna',2016,false],
-  ['Chevrolet Lanos','chevrolet/lanos',2016,false],
-  ['Chery Arrizo 5','chery/arrizo-5',2019,true],
-  ['Dayun Lanos','dayun/lanos',2016,false],
+  ['Chevrolet Lanos','chevrolet/lanos2',2016,false],
+  ['Chery Arrizo 5','chery/Arrizo-5',2019,true],
 ];
 const AREAS=[['Giza','giza'],['Cairo','cairo']];
 const SEARCHES=[];
@@ -25,7 +24,7 @@ for(const [label,slug,minYear,manualOnly] of TARGETS){
 const TELEGRAM_BOT_TOKEN=process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID=process.env.TELEGRAM_CHAT_ID;
 const MAX_ITEMS=Number(process.env.MAX_ITEMS||60);
-const PER_SEARCH_LIMIT=20;
+const PER_SEARCH_LIMIT=40;
 if(!TELEGRAM_BOT_TOKEN||!TELEGRAM_CHAT_ID) throw new Error('Telegram config missing');
 
 const dataDir=path.resolve('data');
@@ -46,6 +45,24 @@ function norm(s=''){return latinDigits(s).toLowerCase().replace(/[\-_]/g,' ').re
 function extractYear(text=''){const years=(latinDigits(text).match(/(?:19|20)\d{2}/g)||[]).map(Number);return years.find(v=>v>=1990&&v<=2030)||null}
 function isManual(text=''){return /manual|man\.?|مانيوال|يدوي|عادي/i.test(norm(text))}
 
+async function selectNewest(page){
+  const selects=page.locator('select');
+  const count=await selects.count();
+  for(let i=0;i<count;i++){
+    const sel=selects.nth(i);
+    const opts=await sel.locator('option').evaluateAll(os=>os.map(o=>({text:(o.textContent||'').trim(),value:o.value})));
+    const newest=opts.find(o=>/newest|latest|recent|الأحدث|الاحدث/i.test(o.text));
+    if(newest){
+      try{
+        await sel.selectOption(newest.value);
+        await page.waitForTimeout(1200);
+        return newest.text;
+      }catch{}
+    }
+  }
+  return '';
+}
+
 async function sendTelegram(i){
   const dayLabel=i.postedOn===cairoToday?'TODAY':i.postedOn===cairoYesterday?'YESTERDAY':'2 DAYS AGO';
   const text=['🚗 إعلان سيارة مستعملة جديد',`🟣 التصنيف: ${dayLabel}`,'🌐 المصدر: Hatla2ee','',`🎯 ${i.target.name} ${i.target.year}`,`📌 ${i.title}`,`💰 السعر: ${i.priceText||'غير ظاهر'}`,`📅 تاريخ النشر: ${i.postedOn}`,`📍 المكان: ${i.location||i.area}`,`🔗 رابط الإعلان: ${i.url}`].join('\n');
@@ -56,13 +73,16 @@ async function sendTelegram(i){
 const browser=await chromium.launch({headless:true});
 const context=await browser.newContext({locale:'en-US',userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36'});
 const candidates=new Map();
+let newestApplied=0,pagesWithResults=0;
 
 for(const [searchLabel,url,targetLabel,minYear,manualOnly,area] of SEARCHES){
   const p=await context.newPage();
   try{
     await p.goto(url,{waitUntil:'domcontentloaded',timeout:60000});
     await p.waitForTimeout(900);
-    for(let i=0;i<2;i++){await p.mouse.wheel(0,1800);await p.waitForTimeout(250)}
+    const newestLabel=await selectNewest(p);
+    if(newestLabel) newestApplied++;
+    for(let i=0;i<4;i++){await p.mouse.wheel(0,2200);await p.waitForTimeout(250)}
     const found=await p.locator('a[href*="/en/car/"]').evaluateAll((links,limit)=>{
       const out=[],s=new Set();
       for(const a of links){
@@ -76,22 +96,24 @@ for(const [searchLabel,url,targetLabel,minYear,manualOnly,area] of SEARCHES){
       }
       return out;
     },PER_SEARCH_LIMIT);
+    if(found.length) pagesWithResults++;
     for(const c of found){
       if(!candidates.has(c.id)) candidates.set(c.id,{...c,sourceSearch:targetLabel,minYear,manualOnly,area});
     }
-    console.log(`Hatla2ee search ${searchLabel}: ${found.length}`);
+    console.log(`Hatla2ee search ${searchLabel}: ${found.length}, newest=${newestLabel||'not-found'}, finalUrl=${p.url()}`);
   }catch(e){console.warn(`Hatla2ee search ${searchLabel} failed: ${e.message}`)}finally{await p.close()}
 }
 
-let sent=0,targeted=0,inspected=0,acceptedDateCount=0,todayCount=0,yesterdayCount=0,twoDaysCount=0,wrongYear=0,notUsed=0,manualRejected=0,duplicateSkipped=0;
+let sent=0,targeted=0,inspected=0,acceptedDateCount=0,todayCount=0,yesterdayCount=0,twoDaysCount=0,wrongYear=0,notUsed=0,conditionMissing=0,manualRejected=0,duplicateSkipped=0,dateMissing=0,dateRejected=0;
+const dateSamples=[];
 const all=[...candidates.values()];
-for(const c of all.slice(0,MAX_ITEMS*TARGETS.length)){
+for(const c of all.slice(0,Math.min(all.length,MAX_ITEMS*TARGETS.length))){
   const id=`Hatla2ee:${c.id}`;
   if(seen.has(id)){duplicateSkipped++;continue}
   const page=await context.newPage();
   try{
     await page.goto(c.href,{waitUntil:'domcontentloaded',timeout:60000});
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(350);
     inspected++;
     const body=(await page.locator('body').innerText().catch(()=>''))||'';
     const title=(await page.locator('h1').first().innerText().catch(()=>''))||c.title||c.sourceSearch;
@@ -100,9 +122,11 @@ for(const c of all.slice(0,MAX_ITEMS*TARGETS.length)){
     targeted++;
     if(c.manualOnly&&!isManual(`${title}\n${body}`)){manualRejected++;continue}
     const condition=body.match(/Condition\s*\n\s*([^\n]+)/i)?.[1]?.trim()||body.match(/الحالة\s*\n\s*([^\n]+)/i)?.[1]?.trim()||'';
-    if(condition&&!/used|مستعمل/i.test(condition)){notUsed++;continue}
+    if(!condition){conditionMissing++;continue}
+    if(!/used|مستعمل/i.test(condition)){notUsed++;continue}
     const postedOn=body.match(/Posted On\s*\n\s*(\d{4}-\d{2}-\d{2})/i)?.[1]||body.match(/تاريخ النشر\s*\n\s*(\d{4}-\d{2}-\d{2})/i)?.[1]||'';
-    if(!acceptedDates.has(postedOn)) continue;
+    if(!postedOn){dateMissing++; if(dateSamples.length<6) dateSamples.push({id:c.id,target:c.sourceSearch,reason:'missing',url:c.href}); continue}
+    if(!acceptedDates.has(postedOn)){dateRejected++; if(dateSamples.length<6) dateSamples.push({id:c.id,target:c.sourceSearch,reason:'old',postedOn,url:c.href}); continue}
     acceptedDateCount++;
     if(postedOn===cairoToday) todayCount++; else if(postedOn===cairoYesterday) yesterdayCount++; else twoDaysCount++;
     const location=body.match(/Location\s*\n\s*([^\n]+)/i)?.[1]?.trim()||body.match(/الموقع\s*\n\s*([^\n]+)/i)?.[1]?.trim()||c.area;
@@ -113,5 +137,6 @@ for(const c of all.slice(0,MAX_ITEMS*TARGETS.length)){
 }
 
 await fs.writeFile(seenPath,JSON.stringify([...seen].slice(-5000),null,2));
-console.log(`Hatla2ee total=${candidates.size}, inspected=${inspected}, targetCars=${targeted}, acceptedDate=${acceptedDateCount}, today=${todayCount}, yesterday=${yesterdayCount}, twoDaysAgo=${twoDaysCount}, duplicates=${duplicateSkipped}, wrongYear=${wrongYear}, notUsed=${notUsed}, manualRejected=${manualRejected}, sent=${sent}`);
+console.log(`Hatla2ee searches=${SEARCHES.length}, pagesWithResults=${pagesWithResults}, newestApplied=${newestApplied}, total=${candidates.size}, inspected=${inspected}, targetCars=${targeted}, acceptedDate=${acceptedDateCount}, today=${todayCount}, yesterday=${yesterdayCount}, twoDaysAgo=${twoDaysCount}, duplicates=${duplicateSkipped}, wrongYear=${wrongYear}, conditionMissing=${conditionMissing}, notUsed=${notUsed}, manualRejected=${manualRejected}, dateMissing=${dateMissing}, dateRejected=${dateRejected}, sent=${sent}`);
+if(dateSamples.length) console.log(`Hatla2ee dateSamples=${JSON.stringify(dateSamples)}`);
 await browser.close();
