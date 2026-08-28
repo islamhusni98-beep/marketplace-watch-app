@@ -6,6 +6,7 @@ const SEARCH_URL='https://www.dubizzle.com.eg/en/vehicles/cars-for-sale/giza/q-u
 const TOKEN=process.env.TELEGRAM_BOT_TOKEN;
 const CHAT=process.env.TELEGRAM_CHAT_ID;
 const MAX=Number(process.env.MAX_ITEMS||150);
+const DETAIL_LIMIT=Number(process.env.DUBIZZLE_DETAIL_LIMIT||6);
 if(!TOKEN||!CHAT) throw new Error('Telegram config missing');
 
 const dir=path.resolve('data');
@@ -77,35 +78,45 @@ const ads=await search.locator('a[href*="/ad/"]').evaluateAll((links,max)=>{
 },MAX);
 await search.close();
 
-let sent=0,duplicates=0,inspected=0,conditionMissing=0,notUsed=0,locationMissing=0,outsideGiza=0,ageMissing=0,olderThan24h=0,detailErrors=0,rateLimited=0,retryRecovered=0;
+let sent=0,duplicates=0,inspected=0,conditionMissing=0,notUsed=0,locationMissing=0,outsideGiza=0,ageMissing=0,olderThan24h=0,detailErrors=0,rateLimited=0,retryRecovered=0,detailBudgetUsed=0,stoppedForRateLimit=false;
+let consecutiveRateLimitFailures=0;
 const evidenceCounts={conditionLabel:0,structuredData:0,pageText:0};
 const missingSamples=[];
 const page=await ctx.newPage();
 for(const a of ads){
   const key=`Dubizzle:${a.id}`;
   if(seen.has(key)){duplicates++;continue}
+  if(detailBudgetUsed>=DETAIL_LIMIT) break;
+  detailBudgetUsed++;
   try{
-    await sleep(jitter(2800,4300));
+    await sleep(jitter(3500,5200));
     let body='',structured='',title='';
     for(let attempt=1;attempt<=2;attempt++){
-      await page.goto(a.url,{waitUntil:'domcontentloaded',timeout:60000});
-      await page.waitForTimeout(650);
+      await page.goto(a.url,{waitUntil:'domcontentloaded',timeout:45000});
+      await page.waitForTimeout(700);
       body=(await page.locator('body').innerText().catch(()=>''))||'';
       title=(await page.locator('h1').first().innerText().catch(()=>''))||'';
       const blocked=/error\s*1015|rate limited|you are being rate limited/i.test(`${title}\n${body}`);
-      if(!blocked) {
+      if(!blocked){
         if(attempt===2) retryRecovered++;
         break;
       }
       rateLimited++;
-      if(attempt===1) await sleep(jitter(9000,13000));
+      if(attempt===1) await sleep(jitter(9000,12000));
     }
     inspected++;
     if(/error\s*1015|rate limited|you are being rate limited/i.test(`${title}\n${body}`)){
       detailErrors++;
-      console.warn(`Dubizzle ${a.id}: rate-limited after retry`);
+      consecutiveRateLimitFailures++;
+      console.warn(`Dubizzle ${a.id}: Cloudflare 1015 after retry; not classified and not marked seen`);
+      if(consecutiveRateLimitFailures>=2){
+        stoppedForRateLimit=true;
+        console.warn('Dubizzle: stopping detail checks after two consecutive Cloudflare 1015 failures');
+        break;
+      }
       continue;
     }
+    consecutiveRateLimitFailures=0;
     structured=(await page.locator('script[type="application/ld+json"],script#__NEXT_DATA__').allTextContents().catch(()=>[])).join('\n');
     const lines=body.split('\n').map(x=>x.trim()).filter(Boolean);
     title=title||lines[0]||'سيارة مستعملة';
@@ -139,7 +150,7 @@ for(const a of ads){
 await page.close();
 
 await fs.writeFile(seenPath,JSON.stringify([...seen].slice(-5000),null,2));
-console.log(`Dubizzle collected=${ads.length}, duplicates=${duplicates}, inspected=${inspected}, conditionMissing=${conditionMissing}, notUsed=${notUsed}, locationMissing=${locationMissing}, outsideGiza=${outsideGiza}, ageMissing=${ageMissing}, olderThan24h=${olderThan24h}, rateLimited=${rateLimited}, retryRecovered=${retryRecovered}, detailErrors=${detailErrors}, sent=${sent}`);
+console.log(`Dubizzle collected=${ads.length}, duplicates=${duplicates}, detailLimit=${DETAIL_LIMIT}, detailBudgetUsed=${detailBudgetUsed}, inspected=${inspected}, conditionMissing=${conditionMissing}, notUsed=${notUsed}, locationMissing=${locationMissing}, outsideGiza=${outsideGiza}, ageMissing=${ageMissing}, olderThan24h=${olderThan24h}, rateLimited=${rateLimited}, retryRecovered=${retryRecovered}, stoppedForRateLimit=${stoppedForRateLimit}, detailErrors=${detailErrors}, sent=${sent}`);
 console.log(`Dubizzle usedEvidence conditionLabel=${evidenceCounts.conditionLabel}, structuredData=${evidenceCounts.structuredData}, pageText=${evidenceCounts.pageText}`);
 if(missingSamples.length) console.log(`Dubizzle conditionMissingSamples=${JSON.stringify(missingSamples)}`);
 await browser.close();
