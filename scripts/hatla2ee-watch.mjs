@@ -44,6 +44,18 @@ function latinDigits(s=''){return s.replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'
 function norm(s=''){return latinDigits(s).toLowerCase().replace(/[\-_]/g,' ').replace(/\s+/g,' ').trim()}
 function extractYear(text=''){const years=(latinDigits(text).match(/(?:19|20)\d{2}/g)||[]).map(Number);return years.find(v=>v>=1990&&v<=2030)||null}
 function isManual(text=''){return /manual|man\.?|مانيوال|يدوي|عادي/i.test(norm(text))}
+function extractCondition(title='',body=''){
+  if(/^\s*Used\b/i.test(title)||/^\s*مستعمل\b/i.test(title)) return 'Used';
+  if(/^\s*New\b/i.test(title)||/^\s*جديد\b/i.test(title)) return 'New';
+  const m=body.match(/(?:^|\n)\s*(?:Condition|الحالة)\s*(?:\n|[:：-]\s*)\s*(Used|New|مستعمل|جديد)\b/im);
+  return m?.[1]?.trim()||'';
+}
+function extractPostedOn(body=''){
+  return body.match(/(?:Posted\s+On|تاريخ\s+النشر)\s*(?:\n|[:：-]\s*)\s*(\d{4}-\d{2}-\d{2})/i)?.[1]||'';
+}
+function extractLocation(body='',fallback=''){
+  return body.match(/(?:^|\n)\s*(?:Location|الموقع)\s*(?:\n|[:：-]\s*)\s*([^\n]+)/im)?.[1]?.trim()||fallback;
+}
 
 async function selectNewest(page){
   const selects=page.locator('select');
@@ -105,7 +117,7 @@ for(const [searchLabel,url,targetLabel,minYear,manualOnly,area] of SEARCHES){
 }
 
 let sent=0,targeted=0,inspected=0,acceptedDateCount=0,todayCount=0,yesterdayCount=0,twoDaysCount=0,wrongYear=0,notUsed=0,conditionMissing=0,manualRejected=0,duplicateSkipped=0,dateMissing=0,dateRejected=0;
-const dateSamples=[];
+const dateSamples=[],conditionSamples=[],matchSamples=[];
 const all=[...candidates.values()];
 for(const c of all.slice(0,Math.min(all.length,MAX_ITEMS*TARGETS.length))){
   const id=`Hatla2ee:${c.id}`;
@@ -121,16 +133,17 @@ for(const c of all.slice(0,Math.min(all.length,MAX_ITEMS*TARGETS.length))){
     if(!year||year<c.minYear||year>2026){wrongYear++;continue}
     targeted++;
     if(c.manualOnly&&!isManual(`${title}\n${body}`)){manualRejected++;continue}
-    const condition=body.match(/Condition\s*\n\s*([^\n]+)/i)?.[1]?.trim()||body.match(/الحالة\s*\n\s*([^\n]+)/i)?.[1]?.trim()||'';
-    if(!condition){conditionMissing++;continue}
+    const condition=extractCondition(title,body);
+    if(!condition){conditionMissing++;if(conditionSamples.length<6)conditionSamples.push({id:c.id,target:c.sourceSearch,title,url:c.href});continue}
     if(!/used|مستعمل/i.test(condition)){notUsed++;continue}
-    const postedOn=body.match(/Posted On\s*\n\s*(\d{4}-\d{2}-\d{2})/i)?.[1]||body.match(/تاريخ النشر\s*\n\s*(\d{4}-\d{2}-\d{2})/i)?.[1]||'';
-    if(!postedOn){dateMissing++; if(dateSamples.length<6) dateSamples.push({id:c.id,target:c.sourceSearch,reason:'missing',url:c.href}); continue}
-    if(!acceptedDates.has(postedOn)){dateRejected++; if(dateSamples.length<6) dateSamples.push({id:c.id,target:c.sourceSearch,reason:'old',postedOn,url:c.href}); continue}
+    const postedOn=extractPostedOn(body);
+    if(!postedOn){dateMissing++;if(dateSamples.length<6)dateSamples.push({id:c.id,target:c.sourceSearch,reason:'missing',title,url:c.href});continue}
+    if(!acceptedDates.has(postedOn)){dateRejected++;if(dateSamples.length<6)dateSamples.push({id:c.id,target:c.sourceSearch,reason:'old',postedOn,title,url:c.href});continue}
     acceptedDateCount++;
     if(postedOn===cairoToday) todayCount++; else if(postedOn===cairoYesterday) yesterdayCount++; else twoDaysCount++;
-    const location=body.match(/Location\s*\n\s*([^\n]+)/i)?.[1]?.trim()||body.match(/الموقع\s*\n\s*([^\n]+)/i)?.[1]?.trim()||c.area;
+    const location=extractLocation(body,c.area);
     const priceText=body.match(/[0-9٠-٩][0-9٠-٩,٬.]*\s*(?:EGP|ج\.م)/i)?.[0]||'';
+    if(matchSamples.length<8)matchSamples.push({id:c.id,target:c.sourceSearch,title,year,condition,postedOn,location,priceText});
     await sendTelegram({id,url:c.href,title,postedOn,location,priceText,area:c.area,target:{name:c.sourceSearch,year}});
     seen.add(id); sent++;
   }catch(e){console.warn(`Hatla2ee ${c.id}: ${e.message}`)}finally{await page.close()}
@@ -138,5 +151,7 @@ for(const c of all.slice(0,Math.min(all.length,MAX_ITEMS*TARGETS.length))){
 
 await fs.writeFile(seenPath,JSON.stringify([...seen].slice(-5000),null,2));
 console.log(`Hatla2ee searches=${SEARCHES.length}, pagesWithResults=${pagesWithResults}, newestApplied=${newestApplied}, total=${candidates.size}, inspected=${inspected}, targetCars=${targeted}, acceptedDate=${acceptedDateCount}, today=${todayCount}, yesterday=${yesterdayCount}, twoDaysAgo=${twoDaysCount}, duplicates=${duplicateSkipped}, wrongYear=${wrongYear}, conditionMissing=${conditionMissing}, notUsed=${notUsed}, manualRejected=${manualRejected}, dateMissing=${dateMissing}, dateRejected=${dateRejected}, sent=${sent}`);
+if(conditionSamples.length) console.log(`Hatla2ee conditionSamples=${JSON.stringify(conditionSamples)}`);
 if(dateSamples.length) console.log(`Hatla2ee dateSamples=${JSON.stringify(dateSamples)}`);
+if(matchSamples.length) console.log(`Hatla2ee matchSamples=${JSON.stringify(matchSamples)}`);
 await browser.close();
