@@ -17,13 +17,12 @@ const AREAS=[['Giza','giza'],['Cairo','cairo']];
 const SEARCHES=[];
 for(const [label,slug,minYear,manualOnly] of TARGETS){
   for(const [area,citySlug] of AREAS){
-    SEARCHES.push({label:`${label} - ${area}`,baseUrl:`https://eg.hatla2ee.com/en/car/city/${citySlug}/${slug}`,targetLabel:label,minYear,manualOnly,area});
+    SEARCHES.push({label:`${label} - ${area}`,url:`https://eg.hatla2ee.com/en/car/city/${citySlug}/${slug}`,targetLabel:label,minYear,manualOnly,area});
   }
 }
 
 const TOKEN=process.env.TELEGRAM_BOT_TOKEN;
 const CHAT=process.env.TELEGRAM_CHAT_ID;
-const MAX_PAGES=5;
 if(!TOKEN||!CHAT) throw new Error('Telegram config missing');
 
 const dataDir=path.resolve('data');
@@ -33,9 +32,8 @@ let initialized=false;
 let known=new Set();
 try{
   const raw=JSON.parse(await fs.readFile(statePath,'utf8'));
-  if(Array.isArray(raw)) {
-    known=new Set(raw);
-  } else if(raw&&typeof raw==='object') {
+  if(Array.isArray(raw)) known=new Set(raw);
+  else if(raw&&typeof raw==='object'){
     initialized=Boolean(raw.initialized);
     known=new Set(Array.isArray(raw.ids)?raw.ids:[]);
   }
@@ -68,40 +66,32 @@ let pagesVisited=0,pagesWithCards=0,searchErrors=0;
 const pageSamples=[];
 
 for(const search of SEARCHES){
-  for(let n=1;n<=MAX_PAGES;n++){
-    const page=await ctx.newPage();
-    const url=n===1?search.baseUrl:`${search.baseUrl}/page/${n}`;
-    try{
-      await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000});
-      await page.waitForTimeout(300);
-      pagesVisited++;
-      const found=await page.locator('a[href*="/en/car/"]').evaluateAll(links=>{
-        const out=[],ids=new Set();
-        for(const a of links){
-          const href=a.href||''; const id=href.match(/\/(\d+)\/?(?:\?.*)?$/)?.[1];
-          if(!id||ids.has(id)) continue;
-          let node=a,txt='';
-          for(let d=0;d<8&&node;d++,node=node.parentElement){
-            const t=(node.innerText||'').trim();
-            if(t.length>60&&/(?:19|20)\d{2}/.test(t)&&/EGP/i.test(t)){txt=t;break}
-          }
-          if(!txt) continue;
-          ids.add(id);
-          out.push({id,url:href.split('?')[0].split('#')[0],anchorText:(a.textContent||'').trim(),cardText:txt});
+  const page=await ctx.newPage();
+  try{
+    await page.goto(search.url,{waitUntil:'domcontentloaded',timeout:60000});
+    await page.waitForTimeout(300);
+    pagesVisited++;
+    const found=await page.locator('a[href*="/en/car/"]').evaluateAll(links=>{
+      const out=[],ids=new Set();
+      for(const a of links){
+        const href=a.href||'';const id=href.match(/\/(\d+)\/?(?:\?.*)?$/)?.[1];
+        if(!id||ids.has(id))continue;
+        let node=a,txt='';
+        for(let d=0;d<8&&node;d++,node=node.parentElement){
+          const t=(node.innerText||'').trim();
+          if(t.length>60&&/(?:19|20)\d{2}/.test(t)&&/EGP/i.test(t)){txt=t;break}
         }
-        return out;
-      });
-      if(!found.length){console.log(`Hatla2ee ${search.label} page=${n}: 0`);break}
-      pagesWithCards++;
-      console.log(`Hatla2ee ${search.label} page=${n}: ${found.length}`);
-      if(pageSamples.length<8)pageSamples.push({search:search.label,page:n,...found[0]});
-      let newOnPage=0;
-      for(const c of found){
-        if(!candidates.has(c.id)){candidates.set(c.id,{...c,...search});newOnPage++;}
+        if(!txt)continue;
+        ids.add(id);
+        out.push({id,url:href.split('?')[0].split('#')[0],anchorText:(a.textContent||'').trim(),cardText:txt});
       }
-      if(newOnPage===0) break;
-    }catch(e){searchErrors++;console.warn(`Hatla2ee ${search.label} page=${n}: ${e.message}`);break}finally{await page.close()}
-  }
+      return out;
+    });
+    if(found.length)pagesWithCards++;
+    console.log(`Hatla2ee ${search.label}: ${found.length}`);
+    if(pageSamples.length<8&&found.length)pageSamples.push({search:search.label,...found[0]});
+    for(const c of found){if(!candidates.has(c.id))candidates.set(c.id,{...c,...search});}
+  }catch(e){searchErrors++;console.warn(`Hatla2ee ${search.label}: ${e.message}`)}finally{await page.close()}
 }
 
 let eligible=0,baselineAdded=0,sent=0,alreadyKnown=0,wrongYear=0,manualRejected=0,parseRejected=0;
@@ -113,15 +103,12 @@ for(const c of candidates.values()){
   if(c.manualOnly&&!isManual(`${p.transmission}\n${c.cardText}`)){manualRejected++;continue}
   eligible++;
   const key=`Hatla2ee:${c.id}`;
-  const wasKnown=known.has(key);
-  if(wasKnown){alreadyKnown++;continue}
+  if(known.has(key)){alreadyKnown++;continue}
   if(initialized){
     await send({url:c.url,target:c.targetLabel,area:c.area,...p});
     sent++;
     if(matches.length<12)matches.push({id:c.id,target:c.targetLabel,...p});
-  } else {
-    baselineAdded++;
-  }
+  }else baselineAdded++;
   known.add(key);
 }
 
