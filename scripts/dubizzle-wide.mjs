@@ -20,7 +20,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const jitter=(min,max)=>Math.floor(min+Math.random()*(max-min));
 const isGiza=t=>/giza|الجيزة|جيزة|haram|هرم|dokki|دقي|mohandessin|مهندسين|agouza|عجوزة|6 october|october|اكتوبر|أكتوبر|zayed|زايد|faisal|فيصل|imbaba|امبابة|إمبابة|hadayek october|حدائق اكتوبر|حدائق أكتوبر|sheikh zayed|الشيخ زايد|maryotaya|مريوطية|moneeb|منيب|warraq|وراق|boulaq dakrour|بولاق الدكرور|omraneyah|العمرانية/i.test(norm(t));
 const explicitUsed=t=>/\bused\b|مستعمل|مستعملة|condition\s*:?\s*used|الحالة\s*:?\s*مستعمل|itemcondition[^\n]{0,80}usedcondition|vehiclecondition[^\n]{0,80}used/i.test(norm(t));
-const looksNew=t=>/brand new|new car|zero km|0 km|زيرو|condition\s*:?\s*new|الحالة\s*:?\s*جديد|itemcondition[^\n]{0,80}newcondition|vehiclecondition[^\n]{0,80}new/i.test(norm(t));
+const explicitNew=t=>/brand new|zero km|0 km|زيرو|condition\s*:?\s*new|الحالة\s*:?\s*جديد|itemcondition[^\n]{0,80}newcondition|vehiclecondition[^\n]{0,80}new/i.test(norm(t));
 
 function ageHours(t=''){
   t=norm(t);
@@ -44,9 +44,11 @@ function extractLabelValue(body,labelRe){
   }
   return '';
 }
-function usedEvidence({body,structured,condition}){
-  const all=`${condition}\n${body}\n${structured}`;
-  if(looksNew(all)) return {used:false,source:'new-marker'};
+function usedEvidence({body,structured,condition,title}){
+  // Never classify from generic navigation text such as "New Cars". New-car
+  // evidence must come from the actual condition field, structured data, or title.
+  const newScope=`${condition}\n${structured}\n${title}`;
+  if(explicitNew(newScope)) return {used:false,source:'new-marker'};
   if(explicitUsed(condition)) return {used:true,source:'condition-label'};
   if(explicitUsed(structured)) return {used:true,source:'structured-data'};
   if(explicitUsed(body)) return {used:true,source:'page-text'};
@@ -126,7 +128,7 @@ for(const a of ads){
     const loc=extractLabelValue(body,/^(location|الموقع|المكان)$/i)||pickLine(lines,/giza|الجيزة|جيزة|haram|هرم|dokki|دقي|mohandessin|مهندسين|agouza|عجوزة|october|اكتوبر|أكتوبر|zayed|زايد|faisal|فيصل|imbaba|امبابة|إمبابة|warraq|وراق|العمرانية/i);
     const ago=pickLine(lines,/listed.*ago|ago$|منذ|today|اليوم|yesterday|أمس|امس/i);
 
-    const evidence=usedEvidence({body,structured,condition});
+    const evidence=usedEvidence({body,structured,condition,title});
     if(evidence.source==='new-marker'){notUsed++;continue}
     if(!evidence.used){
       conditionMissing++;
