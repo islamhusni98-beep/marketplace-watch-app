@@ -57,13 +57,13 @@ for(const target of TARGETS){
     for(let i=0;i<5;i++){await page.mouse.wheel(0,2300);await page.waitForTimeout(180)}
     const cards=page.locator('li[aria-label="Listing"]');
     const count=await cards.count();if(count)pagesWithCards++;
-    const found=count?await cards.evaluateAll(nodes=>nodes.map(card=>{
+    const found=count ? await cards.evaluateAll(nodes=>nodes.map(card=>{
       const lines=(card.innerText||'').split('\n').map(x=>x.trim()).filter(Boolean);
       const a=card.querySelector('a[href^="/en/ad/"]')||card.querySelector('a[href*="/ad/"]');
       const href=a?.href||'';const id=href.match(/ID(\d+)\.html/i)?.[1]||'';
       const labelValue=re=>{const i=lines.findIndex(x=>re.test(x));return i>=0?(lines[i+1]||''):''};
       return {id,url:href.split('?')[0].split('#')[0],title:card.querySelector('a[title]')?.getAttribute('title')||'',price:card.querySelector('div[aria-label="Price"] span')?.textContent?.trim()||lines.find(x=>/^EGP\s/i.test(x))||'',year:labelValue(/^Year$/i),km:labelValue(/^(Kilometers|Mileage)$/i),transmission:labelValue(/^Transmission$/i),text:(card.innerText||'').trim()};
-    }).filter(x=>x.id):[];
+    }).filter(x=>x.id)) : [];
     console.log(`Dubizzle model ${target.name}: listingNodes=${count}, cards=${found.length}, finalUrl=${page.url()}`);
     collected+=found.length;
     for(const c of found){
