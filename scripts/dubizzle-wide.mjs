@@ -2,25 +2,27 @@ import { chromium } from 'playwright';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-const SEARCH_URLS=[
-  ['Giza','https://www.dubizzle.com.eg/en/vehicles/cars-for-sale/used/giza/'],
-  ['Cairo','https://www.dubizzle.com.eg/en/vehicles/cars-for-sale/used/cairo/'],
+// Final user-interest filter. Each target also has a Dubizzle search slug so
+// we search the model directly instead of scanning only the first generic page.
+const TARGETS=[
+  {name:'Nissan Sunny',slug:'nissan-sunny',minYear:2016,re:/\bnissan\s+sunny\b|\bsunny\b|نيسان\s+صني|صني/i},
+  {name:'Chevrolet Aveo',slug:'chevrolet-aveo',minYear:2016,re:/\bchevrolet\s+aveo\b|\baveo\b|شيفروليه\s+افيو|افيو/i},
+  {name:'Chevrolet New Optra',slug:'chevrolet-optra',minYear:2016,re:/\bchevrolet\s+(?:new\s+)?optra\b|\b(?:new\s+)?optra\b|شيفروليه\s+(?:نيو\s+)?اوبترا|اوبترا/i},
+  {name:'Hyundai Accent RB',slug:'hyundai-accent-rb',minYear:2016,re:/\bhyundai\s+accent\s*rb\b|\baccent\s*rb\b|هيونداي\s+اكسنت\s*rb|اكسنت\s*rb/i},
+  {name:'BYD F3',slug:'byd-f3',minYear:2021,re:/\bbyd\s*f3\b|\bf3\b|بي\s*واي\s*دي\s*f3/i},
+  {name:'Hyundai Elantra HD',slug:'hyundai-elantra-hd',minYear:2017,re:/\bhyundai\s+elantra\s*hd\b|\belantra\s*hd\b|هيونداي\s+النترا\s*hd|النترا\s*hd/i},
+  {name:'Hyundai Verna',slug:'hyundai-verna',minYear:2016,re:/\bhyundai\s+verna\b|\bverna\b|هيونداي\s+فيرنا|فيرنا/i},
+  {name:'Chevrolet Lanos',slug:'chevrolet-lanos',minYear:2016,re:/\bchevrolet\s+lanos\b|\blanos\b|شيفروليه\s+لانوس|لانوس/i},
+  {name:'Chery Arrizo 5',slug:'chery-arrizo-5',minYear:2019,manualOnly:true,re:/\bchery\s+arrizo\s*5\b|\barrizo\s*5\b|شيري\s+اريزو\s*5|اريزو\s*5/i},
+  {name:'Dayun Lanos',slug:'dayun-lanos',minYear:2016,re:/\bdayun\s+lanos\b|دايون\s+لانوس/i},
 ];
 
-// Final user-interest filter. An ad reaches Telegram only if it matches one
-// of these cars AND the minimum model year. Arrizo 5 is manual-only.
-const TARGETS=[
-  {name:'Nissan Sunny',minYear:2016,re:/\bnissan\s+sunny\b|\bsunny\b|نيسان\s+صني|صني/i},
-  {name:'Chevrolet Aveo',minYear:2016,re:/\bchevrolet\s+aveo\b|\baveo\b|شيفروليه\s+افيو|افيو/i},
-  {name:'Chevrolet New Optra',minYear:2016,re:/\bchevrolet\s+(?:new\s+)?optra\b|\b(?:new\s+)?optra\b|شيفروليه\s+(?:نيو\s+)?اوبترا|اوبترا/i},
-  {name:'Hyundai Accent RB',minYear:2016,re:/\bhyundai\s+accent\s*rb\b|\baccent\s*rb\b|هيونداي\s+اكسنت\s*rb|اكسنت\s*rb/i},
-  {name:'BYD F3',minYear:2021,re:/\bbyd\s*f3\b|\bf3\b|بي\s*واي\s*دي\s*f3/i},
-  {name:'Hyundai Elantra HD',minYear:2017,re:/\bhyundai\s+elantra\s*hd\b|\belantra\s*hd\b|هيونداي\s+النترا\s*hd|النترا\s*hd/i},
-  {name:'Hyundai Verna',minYear:2016,re:/\bhyundai\s+verna\b|\bverna\b|هيونداي\s+فيرنا|فيرنا/i},
-  {name:'Chevrolet Lanos',minYear:2016,re:/\bchevrolet\s+lanos\b|\blanos\b|شيفروليه\s+لانوس|لانوس/i},
-  {name:'Chery Arrizo 5',minYear:2019,manualOnly:true,re:/\bchery\s+arrizo\s*5\b|\barrizo\s*5\b|شيري\s+اريزو\s*5|اريزو\s*5/i},
-  {name:'Dayun Lanos',minYear:2016,re:/\bdayun\s+lanos\b|دايون\s+لانوس/i},
-];
+const AREAS=[['Giza','giza'],['Cairo','cairo']];
+const SEARCHES=TARGETS.flatMap(target=>AREAS.map(([area,areaSlug])=>({
+  area,
+  target,
+  url:`https://www.dubizzle.com.eg/en/vehicles/cars-for-sale/used/${areaSlug}/q-${target.slug}/`,
+})));
 
 const TOKEN=process.env.TELEGRAM_BOT_TOKEN;
 const CHAT=process.env.TELEGRAM_CHAT_ID;
@@ -64,18 +66,20 @@ function valueAfterLabel(lines,re){
 function extractLocation(lines,ago){
   const i=lines.indexOf(ago);
   if(i<1) return '';
-  for(let j=i-1;j>=0&&j>=i-5;j--){
+  for(let j=i-1;j>=0&&j>=i-6;j--){
     const x=(lines[j]||'').trim();
     if(!x||/^[•·|]$/.test(x)) continue;
-    if(/^(benzine|electric|natural gas|diesel|hybrid|automatic|manual|fuel type|transmission|kilometers|mileage|year)$/i.test(x)) continue;
+    if(/^(benzine|electric|natural gas|diesel|hybrid|automatic|manual|fuel type|transmission|kilometers|mileage|year|condition|used)$/i.test(x)) continue;
     return x;
   }
   return '';
 }
-function matchTarget(title,year,transmission,cardText){
+function matchTarget(title,year,transmission,cardText,preferredTarget){
   const y=Number(year);
   const text=`${title||''} ${cardText||''}`;
-  for(const target of TARGETS){
+  const ordered=preferredTarget?[preferredTarget,...TARGETS.filter(t=>t!==preferredTarget)]:TARGETS;
+  for(const target of ordered){
+    target.re.lastIndex=0;
     if(!target.re.test(text)) continue;
     if(!Number.isFinite(y)||y<target.minYear) return {ok:false,reason:'year',target};
     if(target.manualOnly&&!/\bmanual\b|مانيوال|يدوي/i.test(transmission||cardText||'')) return {ok:false,reason:'manual',target};
@@ -84,7 +88,7 @@ function matchTarget(title,year,transmission,cardText){
   return {ok:false,reason:'model',target:null};
 }
 async function send(i){
-  const text=['🚗 إعلان سيارة مستعملة جديد',`🎯 السيارة: ${i.targetName}`,`⚡ التصنيف: ${heat(i.age)}`,'🌐 المصدر: Dubizzle','',`📌 ${i.title}`,i.year?`📅 السنة: ${i.year}`:'',i.km?`🛣️ الكيلومترات: ${i.km}`:'',i.transmission?`⚙️ الفتيس: ${i.transmission}`:'',`💰 السعر: ${i.price||'غير ظاهر'}`,`🕐 نازل من: ${i.ago}`,`📍 المكان: ${i.loc}`,'✅ التحقق: Used + القاهرة الكبرى + آخر 3 أيام + ضمن السيارات المستهدفة',`🔗 رابط الإعلان: ${i.url}`].filter(Boolean).join('\n');
+  const text=['🚗 إعلان سيارة مستعملة جديد',`🎯 السيارة: ${i.targetName}`,`⚡ التصنيف: ${heat(i.age)}`,'🌐 المصدر: Dubizzle','',`📌 ${i.title}`,i.year?`📅 السنة: ${i.year}`:'',i.km?`🛣️ الكيلومترات: ${i.km}`:'',i.transmission?`⚙️ الفتيس: ${i.transmission}`:'',`💰 السعر: ${i.price||'غير ظاهر'}`,`🕐 نازل من: ${i.ago}`,`📍 المكان: ${i.loc}`,'✅ التحقق: بحث مباشر للموديل + Used + القاهرة الكبرى + آخر 3 أيام',`🔗 رابط الإعلان: ${i.url}`].filter(Boolean).join('\n');
   const r=await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:CHAT,text,disable_web_page_preview:false})});
   if(!r.ok) throw new Error(`Telegram ${r.status}: ${await r.text()}`);
 }
@@ -92,15 +96,17 @@ async function send(i){
 const browser=await chromium.launch({headless:true});
 const ctx=await browser.newContext({locale:'en-US',timezoneId:'Africa/Cairo',viewport:{width:1920,height:1080},userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36'});
 const candidates=new Map();
+let searchPages=0,searchPagesWithCards=0;
 
-for(const [area,url] of SEARCH_URLS){
+for(const search of SEARCHES){
   const page=await ctx.newPage();
   try{
-    await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000});
-    await page.waitForTimeout(2500);
-    for(let i=0;i<8;i++){await page.mouse.wheel(0,2200);await page.waitForTimeout(300)}
+    await page.goto(search.url,{waitUntil:'domcontentloaded',timeout:60000});
+    await page.waitForTimeout(1400);
+    for(let i=0;i<5;i++){await page.mouse.wheel(0,2200);await page.waitForTimeout(220)}
     const listingCount=await page.locator('li[aria-label="Listing"]').count();
     const anchorCount=await page.locator('a[href^="/en/ad/"]').count();
+    searchPages++;
     let found=[];
     if(listingCount>0){
       found=await page.locator('li[aria-label="Listing"]').evaluateAll((cards,max)=>{
@@ -149,15 +155,20 @@ for(const [area,url] of SEARCH_URLS){
         return out;
       },MAX);
     }
+    if(found.length) searchPagesWithCards++;
     for(const c of found){
       const old=candidates.get(c.id);
-      if(!old||(c.cardText||'').length>(old.cardText||'').length)candidates.set(c.id,{...c,searchArea:area});
+      const enriched={...c,searchArea:search.area,searchTarget:search.target.name,preferredTarget:search.target};
+      if(!old||(c.cardText||'').length>(old.cardText||'').length)candidates.set(c.id,enriched);
     }
-    console.log(`Dubizzle ${area}: listingNodes=${listingCount}, adAnchors=${anchorCount}, cards=${found.length}, finalUrl=${page.url()}`);
-  }catch(e){console.warn(`Dubizzle ${area}: ${e.message}`)}finally{await page.close()}
+    console.log(`Dubizzle search ${search.target.name} - ${search.area}: listingNodes=${listingCount}, cards=${found.length}, finalUrl=${page.url()}`);
+  }catch(e){
+    console.warn(`Dubizzle search ${search.target.name} - ${search.area}: ${e.message}`);
+  }finally{await page.close()}
 }
 
 let sent=0,duplicates=0,parseRejected=0,usedRejected=0,ageMissing=0,olderThan72h=0,locationMissing=0,outsideGreaterCairo=0,targetRejected=0,targetYearRejected=0,targetManualRejected=0,targetMatched=0;
+const matchSamples=[];
 for(const c of candidates.values()){
   const key=`Dubizzle:${c.id}`;
   if(seen.has(key)){duplicates++;continue}
@@ -181,7 +192,7 @@ for(const c of candidates.values()){
   if(!loc){locationMissing++;continue}
   if(!isGreaterCairo(loc)){outsideGreaterCairo++;continue}
 
-  const targetMatch=matchTarget(title,year,transmission,c.cardText);
+  const targetMatch=matchTarget(title,year,transmission,c.cardText,c.preferredTarget);
   if(!targetMatch.ok){
     if(targetMatch.reason==='year') targetYearRejected++;
     else if(targetMatch.reason==='manual') targetManualRejected++;
@@ -189,10 +200,15 @@ for(const c of candidates.values()){
     continue;
   }
   targetMatched++;
+  if(matchSamples.length<8) matchSamples.push({id:c.id,target:targetMatch.target.name,title,year,transmission,ago,loc,price});
 
-  try{await send({url:c.url,title,price,year,km,transmission,ago,loc,age,targetName:targetMatch.target.name});seen.add(key);sent++}catch(e){console.warn(`Dubizzle ${c.id}: ${e.message}`)}
+  try{
+    await send({url:c.url,title,price,year,km,transmission,ago,loc,age,targetName:targetMatch.target.name});
+    seen.add(key);sent++;
+  }catch(e){console.warn(`Dubizzle ${c.id}: ${e.message}`)}
 }
 
 await fs.writeFile(seenPath,JSON.stringify([...seen].slice(-5000),null,2));
-console.log(`Dubizzle collected=${candidates.size}, duplicates=${duplicates}, parseRejected=${parseRejected}, usedRejected=${usedRejected}, ageMissing=${ageMissing}, olderThan72h=${olderThan72h}, locationMissing=${locationMissing}, outsideGreaterCairo=${outsideGreaterCairo}, targetRejected=${targetRejected}, targetYearRejected=${targetYearRejected}, targetManualRejected=${targetManualRejected}, targetMatched=${targetMatched}, sent=${sent}`);
+console.log(`Dubizzle directSearch pages=${searchPages}/${SEARCHES.length}, pagesWithCards=${searchPagesWithCards}, collected=${candidates.size}, duplicates=${duplicates}, parseRejected=${parseRejected}, usedRejected=${usedRejected}, ageMissing=${ageMissing}, olderThan72h=${olderThan72h}, locationMissing=${locationMissing}, outsideGreaterCairo=${outsideGreaterCairo}, targetRejected=${targetRejected}, targetYearRejected=${targetYearRejected}, targetManualRejected=${targetManualRejected}, targetMatched=${targetMatched}, sent=${sent}`);
+if(matchSamples.length) console.log(`Dubizzle matchSamples=${JSON.stringify(matchSamples)}`);
 await browser.close();
