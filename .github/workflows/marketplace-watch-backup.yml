@@ -1,0 +1,66 @@
+name: Marketplace Watch Backup
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '7-59/10 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-watch
+  cancel-in-progress: false
+
+jobs:
+  dubizzle:
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
+    timeout-minutes: 6
+    env:
+      MAX_ITEMS: ${{ vars.MAX_ITEMS || '150' }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: '@marketpalacebedo'
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm install --no-audit --no-fund
+      - uses: actions/cache/restore@v4
+        with:
+          path: data/seen-dubizzle.json
+          key: dubizzle-seen-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            dubizzle-seen-
+      - name: Watch Dubizzle
+        run: node scripts/dubizzle-structured-extra.mjs
+      - if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/seen-dubizzle.json
+          key: dubizzle-seen-${{ github.run_id }}-${{ github.run_attempt }}
+
+  hatla2ee:
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
+    timeout-minutes: 6
+    env:
+      MAX_ITEMS: ${{ vars.MAX_ITEMS || '60' }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: '@marketpalacebedo'
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm install --no-audit --no-fund
+      - uses: actions/cache/restore@v4
+        with:
+          path: data/seen-hatla2ee.json
+          key: hatla2ee-seen-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            hatla2ee-seen-
+      - name: Watch Hatla2ee
+        run: node scripts/hatla2ee-watch.mjs
+      - if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/seen-hatla2ee.json
+          key: hatla2ee-seen-${{ github.run_id }}-${{ github.run_attempt }}
