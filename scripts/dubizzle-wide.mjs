@@ -2,8 +2,6 @@ import { chromium } from 'playwright';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-// These are Dubizzle's official Used-result routes. Public Dubizzle Egypt
-// scrapers use the same /used/ route and li[aria-label="Listing"] cards.
 const SEARCH_URLS=[
   ['Giza','https://www.dubizzle.com.eg/en/vehicles/cars-for-sale/used/giza/'],
   ['Cairo','https://www.dubizzle.com.eg/en/vehicles/cars-for-sale/used/cairo/'],
@@ -43,11 +41,13 @@ function numericMileage(t=''){
 function extractAgo(lines){
   return lines.find(x=>/(?:\d+\s*(?:minutes?|hours?|days?|mins?|hrs?)\s*ago|today|yesterday|منذ|اليوم|أمس|امس)/i.test(x))||'';
 }
+function valueAfterLabel(lines,re){
+  const i=lines.findIndex(x=>re.test(x));
+  return i>=0 ? (lines[i+1]||'') : '';
+}
 function extractLocation(lines,ago){
   const i=lines.indexOf(ago);
   if(i<1) return '';
-  // Dubizzle card DOM renders: Location, •, "N days ago".
-  // Walk backwards so the separator bullet can never be mistaken for location.
   for(let j=i-1;j>=0&&j>=i-5;j--){
     const x=(lines[j]||'').trim();
     if(!x||/^[•·|]$/.test(x)) continue;
@@ -63,12 +63,7 @@ async function send(i){
 }
 
 const browser=await chromium.launch({headless:true});
-const ctx=await browser.newContext({
-  locale:'en-US',
-  timezoneId:'Africa/Cairo',
-  viewport:{width:1920,height:1080},
-  userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36'
-});
+const ctx=await browser.newContext({locale:'en-US',timezoneId:'Africa/Cairo',viewport:{width:1920,height:1080},userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36'});
 const candidates=new Map();
 
 for(const [area,url] of SEARCH_URLS){
@@ -85,6 +80,11 @@ for(const [area,url] of SEARCH_URLS){
     if(listingCount>0){
       found=await page.locator('li[aria-label="Listing"]').evaluateAll((cards,max)=>{
         const out=[],ids=new Set();
+        const labelValue=(card,labelRe)=>{
+          const lines=(card.innerText||'').split('\n').map(x=>x.trim()).filter(Boolean);
+          const i=lines.findIndex(x=>labelRe.test(x));
+          return i>=0 ? (lines[i+1]||'') : '';
+        };
         for(const card of cards){
           const a=card.querySelector('a[href^="/en/ad/"]')||card.querySelector('a[href*="/ad/"]');
           const href=a?.href||'';
@@ -92,9 +92,10 @@ for(const [area,url] of SEARCH_URLS){
           if(!id||ids.has(id)) continue;
           const title=card.querySelector('a[title]')?.getAttribute('title')||'';
           const price=card.querySelector('div[aria-label="Price"] span')?.textContent?.trim()||'';
-          const year=card.querySelector('span[aria-label="Year"] span')?.textContent?.trim()||'';
-          const mileage=card.querySelector('span[aria-label="Mileage"] span')?.textContent?.trim()
-            ||card.querySelector('[aria-label="Kilometers"] span')?.textContent?.trim()||'';
+          let year=card.querySelector('span[aria-label="Year"] span')?.textContent?.trim()||'';
+          let mileage=card.querySelector('span[aria-label="Mileage"] span')?.textContent?.trim()||card.querySelector('[aria-label="Kilometers"] span')?.textContent?.trim()||'';
+          if(!/^\d{4}$/.test(year)) year=labelValue(card,/^Year$/i);
+          if(!/[\d]/.test(mileage)||/^(Kilometers|Mileage)$/i.test(mileage)) mileage=labelValue(card,/^(Kilometers|Mileage)$/i);
           const cardText=(card.innerText||'').trim();
           ids.add(id);
           out.push({id,url:href.split('?')[0].split('#')[0],title,price,year,mileage,cardText});
@@ -103,7 +104,6 @@ for(const [area,url] of SEARCH_URLS){
         return out;
       },MAX);
     } else if(anchorCount>0){
-      // Fallback proven by another Dubizzle Egypt scraper: links themselves are stable.
       found=await page.locator('a[href^="/en/ad/"]').evaluateAll((links,max)=>{
         const out=[],ids=new Set();
         for(const a of links){
@@ -130,9 +130,7 @@ for(const [area,url] of SEARCH_URLS){
     }
     console.log(`Dubizzle ${area}: listingNodes=${listingCount}, adAnchors=${anchorCount}, cards=${found.length}, finalUrl=${page.url()}`);
     if(found.length) console.log(`Dubizzle ${area} parsedSample=${JSON.stringify(found.slice(0,2).map(x=>({id:x.id,title:x.title,price:x.price,year:x.year,mileage:x.mileage,text:x.cardText.slice(0,260)})))}`);
-  }catch(e){
-    console.warn(`Dubizzle ${area}: ${e.message}`);
-  }finally{await page.close()}
+  }catch(e){console.warn(`Dubizzle ${area}: ${e.message}`)}finally{await page.close()}
 }
 
 let sent=0,duplicates=0,parseRejected=0,usedRejected=0,ageMissing=0,olderThan72h=0,locationMissing=0,outsideGreaterCairo=0;
@@ -144,12 +142,10 @@ for(const c of candidates.values()){
   const lines=(c.cardText||'').split('\n').map(x=>x.trim()).filter(Boolean);
   const title=c.title||lines.find(x=>/^[A-Za-z0-9].*[A-Za-z]/.test(x)&&!/EGP|Year|Kilometers|Mileage|Transmission|Fuel Type|ago|today|yesterday/i.test(x)&&!/^\d+$/.test(x))||'سيارة مستعملة';
   const price=c.price||lines.find(x=>/^EGP\s/i.test(x))||'';
-  const year=c.year||((c.cardText.match(/\b(?:19|20)\d{2}\b/)||[])[0]||'');
+  let year=c.year||'';
+  if(!/^\d{4}$/.test(year)) year=valueAfterLabel(lines,/^Year$/i)||((c.cardText.match(/\b(?:19|20)\d{2}\b/)||[])[0]||'');
   let km=c.mileage||'';
-  if(!km){
-    const mi=lines.findIndex(x=>/^(Kilometers|Mileage)$/i.test(x));
-    if(mi>=0) km=lines[mi+1]||'';
-  }
+  if(!/[\d]/.test(km)||/^(Kilometers|Mileage)$/i.test(km)) km=valueAfterLabel(lines,/^(Kilometers|Mileage)$/i);
   const kmNumber=numericMileage(km);
   const ago=extractAgo(lines);
   const age=ageHours(ago);
@@ -162,10 +158,7 @@ for(const c of candidates.values()){
   if(!loc){locationMissing++;if(rejectSamples.length<5)rejectSamples.push({id:c.id,reason:'location-missing',title,ago,text:c.cardText.slice(0,300)});continue}
   if(!isGreaterCairo(loc)){outsideGreaterCairo++;if(rejectSamples.length<5)rejectSamples.push({id:c.id,reason:'outside',title,ago,loc});continue}
 
-  try{
-    await send({url:c.url,title,price,year,km,ago,loc,age});
-    seen.add(key);sent++;
-  }catch(e){console.warn(`Dubizzle ${c.id}: ${e.message}`)}
+  try{await send({url:c.url,title,price,year,km,ago,loc,age});seen.add(key);sent++}catch(e){console.warn(`Dubizzle ${c.id}: ${e.message}`)}
 }
 
 await fs.writeFile(seenPath,JSON.stringify([...seen].slice(-5000),null,2));
