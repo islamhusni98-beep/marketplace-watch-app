@@ -6,6 +6,22 @@ const SEARCH_URLS=[
   ['Giza','https://www.dubizzle.com.eg/en/vehicles/cars-for-sale/used/giza/'],
   ['Cairo','https://www.dubizzle.com.eg/en/vehicles/cars-for-sale/used/cairo/'],
 ];
+
+// Final user-interest filter. An ad reaches Telegram only if it matches one
+// of these cars AND the minimum model year. Arrizo 5 is manual-only.
+const TARGETS=[
+  {name:'Nissan Sunny',minYear:2016,re:/\bnissan\s+sunny\b|\bsunny\b|نيسان\s+صني|صني/i},
+  {name:'Chevrolet Aveo',minYear:2016,re:/\bchevrolet\s+aveo\b|\baveo\b|شيفروليه\s+افيو|افيو/i},
+  {name:'Chevrolet New Optra',minYear:2016,re:/\bchevrolet\s+(?:new\s+)?optra\b|\b(?:new\s+)?optra\b|شيفروليه\s+(?:نيو\s+)?اوبترا|اوبترا/i},
+  {name:'Hyundai Accent RB',minYear:2016,re:/\bhyundai\s+accent\s*rb\b|\baccent\s*rb\b|هيونداي\s+اكسنت\s*rb|اكسنت\s*rb/i},
+  {name:'BYD F3',minYear:2021,re:/\bbyd\s*f3\b|\bf3\b|بي\s*واي\s*دي\s*f3/i},
+  {name:'Hyundai Elantra HD',minYear:2017,re:/\bhyundai\s+elantra\s*hd\b|\belantra\s*hd\b|هيونداي\s+النترا\s*hd|النترا\s*hd/i},
+  {name:'Hyundai Verna',minYear:2016,re:/\bhyundai\s+verna\b|\bverna\b|هيونداي\s+فيرنا|فيرنا/i},
+  {name:'Chevrolet Lanos',minYear:2016,re:/\bchevrolet\s+lanos\b|\blanos\b|شيفروليه\s+لانوس|لانوس/i},
+  {name:'Chery Arrizo 5',minYear:2019,manualOnly:true,re:/\bchery\s+arrizo\s*5\b|\barrizo\s*5\b|شيري\s+اريزو\s*5|اريزو\s*5/i},
+  {name:'Dayun Lanos',minYear:2016,re:/\bdayun\s+lanos\b|دايون\s+لانوس/i},
+];
+
 const TOKEN=process.env.TELEGRAM_BOT_TOKEN;
 const CHAT=process.env.TELEGRAM_CHAT_ID;
 const MAX=Number(process.env.MAX_ITEMS||150);
@@ -56,8 +72,19 @@ function extractLocation(lines,ago){
   }
   return '';
 }
+function matchTarget(title,year,transmission,cardText){
+  const y=Number(year);
+  const text=`${title||''} ${cardText||''}`;
+  for(const target of TARGETS){
+    if(!target.re.test(text)) continue;
+    if(!Number.isFinite(y)||y<target.minYear) return {ok:false,reason:'year',target};
+    if(target.manualOnly&&!/\bmanual\b|مانيوال|يدوي/i.test(transmission||cardText||'')) return {ok:false,reason:'manual',target};
+    return {ok:true,target};
+  }
+  return {ok:false,reason:'model',target:null};
+}
 async function send(i){
-  const text=['🚗 إعلان سيارة مستعملة جديد',`⚡ التصنيف: ${heat(i.age)}`,'🌐 المصدر: Dubizzle','',`📌 ${i.title}`,i.year?`📅 السنة: ${i.year}`:'',i.km?`🛣️ الكيلومترات: ${i.km}`:'',`💰 السعر: ${i.price||'غير ظاهر'}`,`🕐 نازل من: ${i.ago}`,`📍 المكان: ${i.loc}`,'✅ التحقق: صفحة Used الرسمية + كيلومترات > 0',`🔗 رابط الإعلان: ${i.url}`].filter(Boolean).join('\n');
+  const text=['🚗 إعلان سيارة مستعملة جديد',`🎯 السيارة: ${i.targetName}`,`⚡ التصنيف: ${heat(i.age)}`,'🌐 المصدر: Dubizzle','',`📌 ${i.title}`,i.year?`📅 السنة: ${i.year}`:'',i.km?`🛣️ الكيلومترات: ${i.km}`:'',i.transmission?`⚙️ الفتيس: ${i.transmission}`:'',`💰 السعر: ${i.price||'غير ظاهر'}`,`🕐 نازل من: ${i.ago}`,`📍 المكان: ${i.loc}`,'✅ التحقق: Used + القاهرة الكبرى + آخر 3 أيام + ضمن السيارات المستهدفة',`🔗 رابط الإعلان: ${i.url}`].filter(Boolean).join('\n');
   const r=await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:CHAT,text,disable_web_page_preview:false})});
   if(!r.ok) throw new Error(`Telegram ${r.status}: ${await r.text()}`);
 }
@@ -72,10 +99,8 @@ for(const [area,url] of SEARCH_URLS){
     await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000});
     await page.waitForTimeout(2500);
     for(let i=0;i<8;i++){await page.mouse.wheel(0,2200);await page.waitForTimeout(300)}
-
     const listingCount=await page.locator('li[aria-label="Listing"]').count();
     const anchorCount=await page.locator('a[href^="/en/ad/"]').count();
-
     let found=[];
     if(listingCount>0){
       found=await page.locator('li[aria-label="Listing"]').evaluateAll((cards,max)=>{
@@ -96,9 +121,10 @@ for(const [area,url] of SEARCH_URLS){
           let mileage=card.querySelector('span[aria-label="Mileage"] span')?.textContent?.trim()||card.querySelector('[aria-label="Kilometers"] span')?.textContent?.trim()||'';
           if(!/^\d{4}$/.test(year)) year=labelValue(card,/^Year$/i);
           if(!/[\d]/.test(mileage)||/^(Kilometers|Mileage)$/i.test(mileage)) mileage=labelValue(card,/^(Kilometers|Mileage)$/i);
+          const transmission=labelValue(card,/^Transmission$/i);
           const cardText=(card.innerText||'').trim();
           ids.add(id);
-          out.push({id,url:href.split('?')[0].split('#')[0],title,price,year,mileage,cardText});
+          out.push({id,url:href.split('?')[0].split('#')[0],title,price,year,mileage,transmission,cardText});
           if(out.length>=max) break;
         }
         return out;
@@ -117,28 +143,24 @@ for(const [area,url] of SEARCH_URLS){
           }
           if(!cardText) continue;
           ids.add(id);
-          out.push({id,url:href.split('?')[0].split('#')[0],title:a.getAttribute('title')||'',price:'',year:'',mileage:'',cardText});
+          out.push({id,url:href.split('?')[0].split('#')[0],title:a.getAttribute('title')||'',price:'',year:'',mileage:'',transmission:'',cardText});
           if(out.length>=max) break;
         }
         return out;
       },MAX);
     }
-
     for(const c of found){
       const old=candidates.get(c.id);
       if(!old||(c.cardText||'').length>(old.cardText||'').length)candidates.set(c.id,{...c,searchArea:area});
     }
     console.log(`Dubizzle ${area}: listingNodes=${listingCount}, adAnchors=${anchorCount}, cards=${found.length}, finalUrl=${page.url()}`);
-    if(found.length) console.log(`Dubizzle ${area} parsedSample=${JSON.stringify(found.slice(0,2).map(x=>({id:x.id,title:x.title,price:x.price,year:x.year,mileage:x.mileage,text:x.cardText.slice(0,260)})))}`);
   }catch(e){console.warn(`Dubizzle ${area}: ${e.message}`)}finally{await page.close()}
 }
 
-let sent=0,duplicates=0,parseRejected=0,usedRejected=0,ageMissing=0,olderThan72h=0,locationMissing=0,outsideGreaterCairo=0;
-const rejectSamples=[];
+let sent=0,duplicates=0,parseRejected=0,usedRejected=0,ageMissing=0,olderThan72h=0,locationMissing=0,outsideGreaterCairo=0,targetRejected=0,targetYearRejected=0,targetManualRejected=0,targetMatched=0;
 for(const c of candidates.values()){
   const key=`Dubizzle:${c.id}`;
   if(seen.has(key)){duplicates++;continue}
-
   const lines=(c.cardText||'').split('\n').map(x=>x.trim()).filter(Boolean);
   const title=c.title||lines.find(x=>/^[A-Za-z0-9].*[A-Za-z]/.test(x)&&!/EGP|Year|Kilometers|Mileage|Transmission|Fuel Type|ago|today|yesterday/i.test(x)&&!/^\d+$/.test(x))||'سيارة مستعملة';
   const price=c.price||lines.find(x=>/^EGP\s/i.test(x))||'';
@@ -146,6 +168,7 @@ for(const c of candidates.values()){
   if(!/^\d{4}$/.test(year)) year=valueAfterLabel(lines,/^Year$/i)||((c.cardText.match(/\b(?:19|20)\d{2}\b/)||[])[0]||'');
   let km=c.mileage||'';
   if(!/[\d]/.test(km)||/^(Kilometers|Mileage)$/i.test(km)) km=valueAfterLabel(lines,/^(Kilometers|Mileage)$/i);
+  const transmission=c.transmission||valueAfterLabel(lines,/^Transmission$/i)||'';
   const kmNumber=numericMileage(km);
   const ago=extractAgo(lines);
   const age=ageHours(ago);
@@ -153,15 +176,23 @@ for(const c of candidates.values()){
 
   if(!title||!price||!year||!km){parseRejected++;continue}
   if(kmNumber===null||kmNumber<=0){usedRejected++;continue}
-  if(age===null){ageMissing++;if(rejectSamples.length<5)rejectSamples.push({id:c.id,reason:'age',title,ago,loc,text:c.cardText.slice(0,300)});continue}
+  if(age===null){ageMissing++;continue}
   if(age>MAX_AGE_HOURS){olderThan72h++;continue}
-  if(!loc){locationMissing++;if(rejectSamples.length<5)rejectSamples.push({id:c.id,reason:'location-missing',title,ago,text:c.cardText.slice(0,300)});continue}
-  if(!isGreaterCairo(loc)){outsideGreaterCairo++;if(rejectSamples.length<5)rejectSamples.push({id:c.id,reason:'outside',title,ago,loc});continue}
+  if(!loc){locationMissing++;continue}
+  if(!isGreaterCairo(loc)){outsideGreaterCairo++;continue}
 
-  try{await send({url:c.url,title,price,year,km,ago,loc,age});seen.add(key);sent++}catch(e){console.warn(`Dubizzle ${c.id}: ${e.message}`)}
+  const targetMatch=matchTarget(title,year,transmission,c.cardText);
+  if(!targetMatch.ok){
+    if(targetMatch.reason==='year') targetYearRejected++;
+    else if(targetMatch.reason==='manual') targetManualRejected++;
+    else targetRejected++;
+    continue;
+  }
+  targetMatched++;
+
+  try{await send({url:c.url,title,price,year,km,transmission,ago,loc,age,targetName:targetMatch.target.name});seen.add(key);sent++}catch(e){console.warn(`Dubizzle ${c.id}: ${e.message}`)}
 }
 
 await fs.writeFile(seenPath,JSON.stringify([...seen].slice(-5000),null,2));
-console.log(`Dubizzle collected=${candidates.size}, duplicates=${duplicates}, parseRejected=${parseRejected}, usedRejected=${usedRejected}, ageMissing=${ageMissing}, olderThan72h=${olderThan72h}, locationMissing=${locationMissing}, outsideGreaterCairo=${outsideGreaterCairo}, sent=${sent}`);
-if(rejectSamples.length) console.log(`Dubizzle rejectSamples=${JSON.stringify(rejectSamples)}`);
+console.log(`Dubizzle collected=${candidates.size}, duplicates=${duplicates}, parseRejected=${parseRejected}, usedRejected=${usedRejected}, ageMissing=${ageMissing}, olderThan72h=${olderThan72h}, locationMissing=${locationMissing}, outsideGreaterCairo=${outsideGreaterCairo}, targetRejected=${targetRejected}, targetYearRejected=${targetYearRejected}, targetManualRejected=${targetManualRejected}, targetMatched=${targetMatched}, sent=${sent}`);
 await browser.close();
