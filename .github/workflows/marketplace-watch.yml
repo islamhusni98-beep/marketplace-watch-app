@@ -34,7 +34,9 @@ jobs:
           restore-keys: |
             dubizzle-seen-
       - name: Watch Dubizzle
-        run: node scripts/dubizzle-wide.mjs
+        run: |
+          node scripts/dubizzle-wide.mjs
+          node scripts/dubizzle-structured-extra.mjs
       - if: always()
         uses: actions/cache/save@v4
         with:
