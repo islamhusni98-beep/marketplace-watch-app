@@ -16,7 +16,6 @@ const TARGETS=[
   {name:'Hyundai Elantra HD',minYear:2017,url:'https://www.dubizzle.com.eg/en/vehicles/cars-for-sale/used/hyundai/q-elantra-hd/',re:/\b(?:hyundai\s+)?elantra\s*hd\b|\belentra\s*hd\b|النترا\s*(?:hd|اتش\s*دي)|إلينترا\s*(?:hd|اتش\s*دي)/i},
   {name:'Hyundai Verna',minYear:2016,url:'https://www.dubizzle.com.eg/en/vehicles/cars-for-sale/used/hyundai/model-verna/',re:/\bhyundai\s+verna\b|\bverna\b|هيونداي\s+فيرنا|فيرنا/i},
   {name:'Chevrolet Lanos',minYear:2016,url:'https://www.dubizzle.com.eg/en/vehicles/cars-for-sale/used/chevrolet/model-lanos/',re:/\bchevrolet\s+lanos\b|\blanos\b|شيفروليه\s+لانوس|لانوس/i},
-  {name:'Chery Arrizo 5',minYear:2019,manualOnly:true,url:'https://www.dubizzle.com.eg/en/vehicles/cars-for-sale/used/chery/model-arrizo-5/',re:/\bchery\s+arrizo\s*5\b|\barrizo\s*5\b|شيري\s+اريزو\s*5|شيرى\s+أ?ريزو\s*5|اريزو\s*5/i},
 ];
 
 const norm=s=>(s||'').toLowerCase().replace(/[\-_]/g,' ').replace(/\s+/g,' ').trim();
