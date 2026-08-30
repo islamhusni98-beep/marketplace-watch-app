@@ -55,7 +55,7 @@ async function scrape(page,url){
     const href=a?.href||'';const id=href.match(/ID(\d+)\.html/i)?.[1]||'';
     const labelValue=re=>{const i=lines.findIndex(x=>re.test(x));return i>=0?(lines[i+1]||''):''};
     return {id,url:href.split('?')[0].split('#')[0],title:card.querySelector('a[title]')?.getAttribute('title')||'',price:card.querySelector('div[aria-label="Price"] span')?.textContent?.trim()||lines.find(x=>/^EGP\s/i.test(x))||'',year:labelValue(/^Year$/i),km:labelValue(/^(Kilometers|Mileage)$/i),transmission:labelValue(/^Transmission$/i),text:(card.innerText||'').trim()};
-  }).filter(x=>x.id),max):[];
+  }).filter(x=>x.id),MAX_ITEMS):[];
   return {count,found,finalUrl:page.url()};
 }
 
