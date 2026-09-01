@@ -75,11 +75,14 @@ for(const target of TARGETS){
     if(result.found.length)pagesWithCards++;
     console.log(`Dubizzle model ${target.name}: listingNodes=${result.count}, cards=${result.found.length}, source=${usedUrl}, finalUrl=${result.finalUrl}`);
     collected+=result.found.length;
+    const usedRoute=/\/cars-for-sale\/used\//i.test(usedUrl)||/\/cars-for-sale\/used\//i.test(result.finalUrl);
     for(const c of result.found){
       const key=`Dubizzle:${c.id}`;if(seen.has(key)){duplicates++;continue}
       const lines=c.text.split('\n').map(x=>x.trim()).filter(Boolean);
       target.re.lastIndex=0;if(!target.re.test(`${c.title} ${c.text}`)){modelRejected++;continue}
-      const condition=c.condition||after(lines,/^Condition$/i);if(!condition||!/\bused\b|مستعمل/i.test(condition)){conditionRejected++;continue}
+      const condition=c.condition||after(lines,/^Condition$/i);
+      const explicitlyUsed=/\bused\b|مستعمل/i.test(condition);
+      if(!explicitlyUsed&&!usedRoute){conditionRejected++;continue}
       const year=Number(c.year||((c.text.match(/\b(?:19|20)\d{2}\b/)||[])[0]||0));if(!year||year<target.minYear||year>2026){wrongYear++;continue}
       const km=c.km||after(lines,/^(Kilometers|Mileage)$/i);if(!km||!/\d/.test(km)){parseRejected++;continue}
       const transmission=c.transmission||after(lines,/^Transmission$/i);if(!transmission||!/automatic|manual|a\/t|m\/t|اوتوماتيك|أوتوماتيك|مانيوال|يدوي/i.test(transmission)){parseRejected++;continue}
@@ -89,7 +92,7 @@ for(const target of TARGETS){
       if(!c.title||!c.url){parseRejected++;continue}
       await send({target:target.name,title:c.title,year,km,transmission,price,ago,loc,url:c.url});
       seen.add(key);sent++;
-      if(samples.length<12)samples.push({id:c.id,target:target.name,year,ago,loc,price,condition,transmission});
+      if(samples.length<12)samples.push({id:c.id,target:target.name,year,ago,loc,price,condition:condition||'used-route',transmission});
     }
   }finally{await page.close()}
 }
