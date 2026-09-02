@@ -45,17 +45,10 @@ async function send(i){
 
 async function scrape(page,url){
   await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000});
-  await page.waitForTimeout(1600);
-  for(let i=0;i<5;i++){await page.mouse.wheel(0,2300);await page.waitForTimeout(220)}
-  let cards=page.locator('li[aria-label="Listing"]');
-  let count=await cards.count();
-  if(!count){
-    await page.reload({waitUntil:'domcontentloaded',timeout:60000});
-    await page.waitForTimeout(1800);
-    for(let i=0;i<4;i++){await page.mouse.wheel(0,2200);await page.waitForTimeout(220)}
-    cards=page.locator('li[aria-label="Listing"]');
-    count=await cards.count();
-  }
+  await page.waitForTimeout(1400);
+  for(let i=0;i<5;i++){await page.mouse.wheel(0,2300);await page.waitForTimeout(180)}
+  const cards=page.locator('li[aria-label="Listing"]');
+  const count=await cards.count();
   const found=count?await cards.evaluateAll((nodes,max)=>nodes.slice(0,max).map(card=>{
     const lines=(card.innerText||'').split('\n').map(x=>x.trim()).filter(Boolean);
     const a=card.querySelector('a[href^="/en/ad/"]')||card.querySelector('a[href*="/ad/"]');
@@ -71,40 +64,46 @@ const CONTEXT_OPTS={locale:'en-US',timezoneId:'Africa/Cairo',viewport:{width:192
 let pagesWithCards=0,collected=0,sent=0,duplicates=0,old=0,wrongYear=0,parseRejected=0,outside=0,modelRejected=0,conditionRejected=0,fallbackUsed=0;
 const samples=[];
 
-for(const target of TARGETS){
+async function scrapeTarget(target){
   const targetCtx=await browser.newContext(CONTEXT_OPTS);
   const page=await targetCtx.newPage();
+  let result={count:0,found:[],finalUrl:''},usedUrl='';
   try{
-    let result={count:0,found:[],finalUrl:''},usedUrl='';
     for(let i=0;i<target.urls.length;i++){
       try{result=await scrape(page,target.urls[i]);usedUrl=target.urls[i];}catch(e){console.warn(`Dubizzle model ${target.name} source ${i+1}: ${e.message}`);result={count:0,found:[],finalUrl:''};}
       if(result.found.length){if(i>0)fallbackUsed++;break;}
     }
-    if(result.found.length)pagesWithCards++;
-    console.log(`Dubizzle model ${target.name}: listingNodes=${result.count}, cards=${result.found.length}, source=${usedUrl}, finalUrl=${result.finalUrl}`);
-    collected+=result.found.length;
-    const usedRoute=/\/cars-for-sale\/used\//i.test(usedUrl)||/\/cars-for-sale\/used\//i.test(result.finalUrl);
-    for(const c of result.found){
-      const key=`Dubizzle:${c.id}`;if(seen.has(key)){duplicates++;continue}
-      const lines=c.text.split('\n').map(x=>x.trim()).filter(Boolean);
-      target.re.lastIndex=0;if(!target.re.test(`${c.title} ${c.text}`)){modelRejected++;continue}
-      const condition=c.condition||after(lines,/^Condition$/i);
-      const explicitlyUsed=/\bused\b|مستعمل/i.test(condition);
-      if(!explicitlyUsed&&!usedRoute){conditionRejected++;continue}
-      const year=Number(c.year||((c.text.match(/\b(?:19|20)\d{2}\b/)||[])[0]||0));if(!year||year<target.minYear||year>2026){wrongYear++;continue}
-      const km=c.km||after(lines,/^(Kilometers|Mileage)$/i);if(!km||!/\d/.test(km)){parseRejected++;continue}
-      const transmission=c.transmission||after(lines,/^Transmission$/i);if(!transmission||!/automatic|manual|a\/t|m\/t|اوتوماتيك|أوتوماتيك|مانيوال|يدوي/i.test(transmission)){parseRejected++;continue}
-      const ago=agoLine(lines),age=ageHours(ago);if(age===null||age>72){old++;continue}
-      const loc=location(lines,ago);if(!loc||!isGreaterCairo(loc)){outside++;continue}
-      const price=c.price||lines.find(x=>/^EGP\s/i.test(x))||'';if(!price||!/\d/.test(price)){parseRejected++;continue}
-      if(!c.title||!c.url){parseRejected++;continue}
-      await send({target:target.name,title:c.title,year,km,transmission,price,ago,loc,url:c.url});
-      seen.add(key);sent++;
-      if(samples.length<12)samples.push({id:c.id,target:target.name,year,ago,loc,price,condition:condition||'used-route',transmission});
-    }
-  }finally{
+    return {target,result,usedUrl};
+  } finally {
     await page.close();
     await targetCtx.close();
+  }
+}
+
+const scraped=await Promise.all(TARGETS.map(scrapeTarget));
+
+for(const {target,result,usedUrl} of scraped){
+  if(result.found.length)pagesWithCards++;
+  console.log(`Dubizzle model ${target.name}: listingNodes=${result.count}, cards=${result.found.length}, source=${usedUrl}, finalUrl=${result.finalUrl}`);
+  collected+=result.found.length;
+  const usedRoute=/\/cars-for-sale\/used\//i.test(usedUrl)||/\/cars-for-sale\/used\//i.test(result.finalUrl);
+  for(const c of result.found){
+    const key=`Dubizzle:${c.id}`;if(seen.has(key)){duplicates++;continue}
+    const lines=c.text.split('\n').map(x=>x.trim()).filter(Boolean);
+    target.re.lastIndex=0;if(!target.re.test(`${c.title} ${c.text}`)){modelRejected++;continue}
+    const condition=c.condition||after(lines,/^Condition$/i);
+    const explicitlyUsed=/\bused\b|مستعمل/i.test(condition);
+    if(!explicitlyUsed&&!usedRoute){conditionRejected++;continue}
+    const year=Number(c.year||((c.text.match(/\b(?:19|20)\d{2}\b/)||[])[0]||0));if(!year||year<target.minYear||year>2026){wrongYear++;continue}
+    const km=c.km||after(lines,/^(Kilometers|Mileage)$/i);if(!km||!/\d/.test(km)){parseRejected++;continue}
+    const transmission=c.transmission||after(lines,/^Transmission$/i);if(!transmission||!/automatic|manual|a\/t|m\/t|اوتوماتيك|أوتوماتيك|مانيوال|يدوي/i.test(transmission)){parseRejected++;continue}
+    const ago=agoLine(lines),age=ageHours(ago);if(age===null||age>72){old++;continue}
+    const loc=location(lines,ago);if(!loc||!isGreaterCairo(loc)){outside++;continue}
+    const price=c.price||lines.find(x=>/^EGP\s/i.test(x))||'';if(!price||!/\d/.test(price)){parseRejected++;continue}
+    if(!c.title||!c.url){parseRejected++;continue}
+    await send({target:target.name,title:c.title,year,km,transmission,price,ago,loc,url:c.url});
+    seen.add(key);sent++;
+    if(samples.length<12)samples.push({id:c.id,target:target.name,year,ago,loc,price,condition:condition||'used-route',transmission});
   }
 }
 
