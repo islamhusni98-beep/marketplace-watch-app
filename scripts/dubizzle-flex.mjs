@@ -45,10 +45,17 @@ async function send(i){
 
 async function scrape(page,url){
   await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000});
-  await page.waitForTimeout(1200);
-  for(let i=0;i<5;i++){await page.mouse.wheel(0,2300);await page.waitForTimeout(180)}
-  const cards=page.locator('li[aria-label="Listing"]');
-  const count=await cards.count();
+  await page.waitForTimeout(1600);
+  for(let i=0;i<5;i++){await page.mouse.wheel(0,2300);await page.waitForTimeout(220)}
+  let cards=page.locator('li[aria-label="Listing"]');
+  let count=await cards.count();
+  if(!count){
+    await page.reload({waitUntil:'domcontentloaded',timeout:60000});
+    await page.waitForTimeout(1800);
+    for(let i=0;i<4;i++){await page.mouse.wheel(0,2200);await page.waitForTimeout(220)}
+    cards=page.locator('li[aria-label="Listing"]');
+    count=await cards.count();
+  }
   const found=count?await cards.evaluateAll((nodes,max)=>nodes.slice(0,max).map(card=>{
     const lines=(card.innerText||'').split('\n').map(x=>x.trim()).filter(Boolean);
     const a=card.querySelector('a[href^="/en/ad/"]')||card.querySelector('a[href*="/ad/"]');
@@ -60,12 +67,13 @@ async function scrape(page,url){
 }
 
 const browser=await chromium.launch({headless:true});
-const ctx=await browser.newContext({locale:'en-US',timezoneId:'Africa/Cairo',viewport:{width:1920,height:1080},userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36'});
+const CONTEXT_OPTS={locale:'en-US',timezoneId:'Africa/Cairo',viewport:{width:1920,height:1080},userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36'};
 let pagesWithCards=0,collected=0,sent=0,duplicates=0,old=0,wrongYear=0,parseRejected=0,outside=0,modelRejected=0,conditionRejected=0,fallbackUsed=0;
 const samples=[];
 
 for(const target of TARGETS){
-  const page=await ctx.newPage();
+  const targetCtx=await browser.newContext(CONTEXT_OPTS);
+  const page=await targetCtx.newPage();
   try{
     let result={count:0,found:[],finalUrl:''},usedUrl='';
     for(let i=0;i<target.urls.length;i++){
@@ -94,7 +102,10 @@ for(const target of TARGETS){
       seen.add(key);sent++;
       if(samples.length<12)samples.push({id:c.id,target:target.name,year,ago,loc,price,condition:condition||'used-route',transmission});
     }
-  }finally{await page.close()}
+  }finally{
+    await page.close();
+    await targetCtx.close();
+  }
 }
 
 await fs.writeFile(seenPath,JSON.stringify([...seen].slice(-5000),null,2));
