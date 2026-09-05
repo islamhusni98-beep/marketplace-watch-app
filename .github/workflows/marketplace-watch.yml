@@ -14,7 +14,7 @@ jobs:
   dubizzle:
     runs-on: ubuntu-latest
     container:
-      image: mcr.microsoft.com/playwright:v1.62.1-noble
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
     timeout-minutes: 6
     env:
       MAX_ITEMS: ${{ vars.MAX_ITEMS || '150' }}
