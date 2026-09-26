@@ -86,7 +86,16 @@ async function scrapeTarget(target){
   }
 }
 
-const scraped=await Promise.all(TARGETS.map(scrapeTarget));
+let scraped=await Promise.all(TARGETS.map(scrapeTarget));
+if(scraped.every(x=>x.result.found.length===0)){
+  console.warn('Dubizzle health check: all searches returned 0 cards; retrying once after 20s');
+  await new Promise(resolve=>setTimeout(resolve,20000));
+  scraped=await Promise.all(TARGETS.map(scrapeTarget));
+}
+if(scraped.every(x=>x.result.found.length===0)){
+  await browser.close();
+  throw new Error('Dubizzle health check failed: all target searches returned 0 cards after retry; refusing false-success run');
+}
 
 for(const {target,result,usedUrl} of scraped){
   if(result.found.length)pagesWithCards++;
