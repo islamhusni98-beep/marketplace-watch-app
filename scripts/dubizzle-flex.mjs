@@ -39,8 +39,14 @@ let seen=new Set();try{seen=new Set(JSON.parse(await fs.readFile(seenPath,'utf8'
 
 async function send(i){
   const text=['🚗 إعلان سيارة مستعملة جديد',`🎯 السيارة: ${i.target}`,'🌐 المصدر: Dubizzle','',`📌 ${i.title}`,`📅 السنة: ${i.year}`,`🛣️ الكيلومترات: ${i.km}`,`⚙️ الفتيس: ${i.transmission}`,`💰 السعر: ${i.price}`,`🕐 نازل من: ${i.ago}`,`📍 المكان: ${i.loc}`,'✅ التحقق: مستعمل مؤكد + القاهرة الكبرى + آخر 3 أيام + بيانات أساسية كاملة',`🔗 رابط الإعلان: ${i.url}`].join('\n');
-  const r=await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:CHAT,text,disable_web_page_preview:false})});
-  if(!r.ok)throw new Error(`Telegram ${r.status}: ${await r.text()}`);
+  for(let attempt=0;attempt<3;attempt++){
+    const r=await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:CHAT,text,disable_web_page_preview:false})});
+    if(r.ok)return;
+    const body=await r.text();
+    let retryAfter=0;try{retryAfter=Number(JSON.parse(body)?.parameters?.retry_after||0)}catch{}
+    if(r.status===429&&retryAfter&&attempt<2){console.warn(`Telegram rate limited; retrying after ${retryAfter}s`);await new Promise(resolve=>setTimeout(resolve,(retryAfter+1)*1000));continue}
+    throw new Error(`Telegram ${r.status}: ${body}`);
+  }
 }
 
 async function scrape(page,url){
