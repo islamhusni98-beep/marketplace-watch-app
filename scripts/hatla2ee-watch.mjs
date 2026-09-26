@@ -71,8 +71,14 @@ function parseCard(c,targetLabel,area){
 function fingerprint(target,p){return norm([target,p.title,p.year,p.mileage,p.transmission,p.price,p.city].join('|'))}
 async function send(i){
   const text=['🚗 إعلان سيارة مستعملة جديد','🟣 التصنيف: NEWLY LISTED','🌐 المصدر: Hatla2ee','',`🎯 ${i.target} ${i.year}`,`📌 ${i.title}`,`💰 السعر: ${i.price}`,i.mileage?`🛣️ الكيلومترات: ${i.mileage}`:'',`⚙️ الفتيس: ${i.transmission}`,`📍 المكان: ${i.city}`,'✅ التحقق: مستعمل مؤكد + القاهرة الكبرى + آخر 3 أيام + بيانات أساسية كاملة',`🔗 رابط الإعلان: ${i.url}`].filter(Boolean).join('\n');
-  const r=await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:CHAT,text,disable_web_page_preview:false})});
-  if(!r.ok) throw new Error(`Telegram ${r.status}: ${await r.text()}`);
+  for(let attempt=0;attempt<3;attempt++){
+    const r=await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:CHAT,text,disable_web_page_preview:false})});
+    if(r.ok)return;
+    const body=await r.text();
+    let retryAfter=0;try{retryAfter=Number(JSON.parse(body)?.parameters?.retry_after||0)}catch{}
+    if(r.status===429&&retryAfter&&attempt<2){console.warn(`Telegram rate limited; retrying after ${retryAfter}s`);await new Promise(resolve=>setTimeout(resolve,(retryAfter+1)*1000));continue}
+    throw new Error(`Telegram ${r.status}: ${body}`);
+  }
 }
 
 const browser=await chromium.launch({headless:true});
