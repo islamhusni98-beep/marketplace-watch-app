@@ -45,6 +45,19 @@ function latinDigits(s=''){return String(s).replace(/[٠-٩]/g,d=>'٠١٢٣٤٥�
 function norm(s=''){return latinDigits(s).toLowerCase().replace(/[\-_]/g,' ').replace(/\s+/g,' ').trim()}
 function extractYear(text=''){const ys=(latinDigits(text).match(/(?:19|20)\d{2}/g)||[]).map(Number);return ys.find(v=>v>=1990&&v<=2030)||null}
 function isManual(text=''){return /\bmanual\b|man\.?|مانيوال|يدوي|عادي/i.test(norm(text))}
+const cairoFmt=new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Cairo',year:'numeric',month:'2-digit',day:'2-digit'});
+const now=new Date();
+const acceptedDates=new Set([0,1,2].map(days=>cairoFmt.format(new Date(now.getTime()-days*86400000))));
+const isGreaterCairo=t=>/giza|الجيزة|جيزة|cairo|القاهرة|haram|هرم|dokki|دقي|mohandessin|مهندسين|agouza|عجوزة|6th? of october|6 october|october|اكتوبر|أكتوبر|zayed|زايد|faisal|فيصل|imbaba|امبابة|إمبابة|hadayek|حدائق|maryotaya|مريوطية|moneeb|منيب|warraq|وراق|boulaq|بولاق|omraneyah|العمرانية|nasr city|مدينة نصر|heliopolis|مصر الجديدة|maadi|المعادي|new cairo|القاهرة الجديدة|settlement|التجمع|tagamoa|mokattam|المقطم|shorouk|الشروق|badr|بدر|obour|العبور|ain shams|عين شمس|matariya|المطرية|shubra|شبرا|downtown|وسط|sayeda zeinab|السيدة زينب|zamalek|الزمالك|garden city|جاردن سيتي|madinaty|مدينتي|helwan|حلوان|sheraton|شيراتون|ramses|رمسيس|new nozha|النزهة/i.test(norm(t));
+function extractCondition(title='',body=''){
+  if(/^\s*Used\b/i.test(title)||/^\s*مستعمل\b/i.test(title)) return 'Used';
+  if(/^\s*New\b/i.test(title)||/^\s*جديد\b/i.test(title)) return 'New';
+  return body.match(/(?:^|\n)\s*(?:Condition|الحالة)\s*(?:\n|[:：-]\s*)\s*(Used|New|مستعمل|جديد)\b/im)?.[1]?.trim()||'';
+}
+function extractPostedOn(body=''){return body.match(/(?:Posted\s+On|تاريخ\s+النشر)\s*(?:\n|[:：-]\s*)\s*(\d{4}-\d{2}-\d{2})/i)?.[1]||''}
+function extractLocation(body=''){return body.match(/(?:^|\n)\s*(?:Location|الموقع)\s*(?:\n|[:：-]\s*)\s*([^\n]+)/im)?.[1]?.trim()||''}
+function extractTransmission(body=''){return body.match(/(?:^|\n)\s*(?:Transmission|ناقل الحركة|الفتيس)\s*(?:\n|[:：-]\s*)\s*([^\n]+)/im)?.[1]?.trim()||''}
+function extractPrice(body=''){return body.match(/[0-9٠-٩][0-9٠-٩,٬.]*\s*(?:EGP|ج\.م)/i)?.[0]||''}
 function parseCard(c,targetLabel,area){
   const lines=(c.cardText||'').split('\n').map(x=>x.trim()).filter(Boolean);
   const title=lines.find(x=>/(?:19|20)\d{2}/.test(x)&&/[A-Za-zأ-ي]/.test(x))||c.anchorText||targetLabel;
@@ -57,7 +70,7 @@ function parseCard(c,targetLabel,area){
 }
 function fingerprint(target,p){return norm([target,p.title,p.year,p.mileage,p.transmission,p.price,p.city].join('|'))}
 async function send(i){
-  const text=['🚗 إعلان سيارة مستعملة جديد','🟣 التصنيف: NEWLY LISTED','🌐 المصدر: Hatla2ee','',`🎯 ${i.target} ${i.year}`,`📌 ${i.title}`,`💰 السعر: ${i.price||'غير ظاهر'}`,i.mileage?`🛣️ الكيلومترات: ${i.mileage}`:'',i.transmission?`⚙️ الفتيس: ${i.transmission}`:'',`📍 المكان: ${i.city||i.area}`,'✅ التحقق: ظهر بين تشغيلين ناجحين متتاليين لنفس صفحة الموديل',`🔗 رابط الإعلان: ${i.url}`].filter(Boolean).join('\n');
+  const text=['🚗 إعلان سيارة مستعملة جديد','🟣 التصنيف: NEWLY LISTED','🌐 المصدر: Hatla2ee','',`🎯 ${i.target} ${i.year}`,`📌 ${i.title}`,`💰 السعر: ${i.price}`,i.mileage?`🛣️ الكيلومترات: ${i.mileage}`:'',`⚙️ الفتيس: ${i.transmission}`,`📍 المكان: ${i.city}`,'✅ التحقق: مستعمل مؤكد + القاهرة الكبرى + آخر 3 أيام + بيانات أساسية كاملة',`🔗 رابط الإعلان: ${i.url}`].filter(Boolean).join('\n');
   const r=await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:CHAT,text,disable_web_page_preview:false})});
   if(!r.ok) throw new Error(`Telegram ${r.status}: ${await r.text()}`);
 }
@@ -102,7 +115,7 @@ for(const search of SEARCHES){
   }finally{await page.close()}
 }
 
-let eligible=0,baselineAdded=0,sent=0,alreadyKnown=0,wrongYear=0,manualRejected=0,parseRejected=0,rebaselineSearches=0,suppressedDuplicates=0;
+let eligible=0,baselineAdded=0,sent=0,alreadyKnown=0,wrongYear=0,manualRejected=0,parseRejected=0,rebaselineSearches=0,suppressedDuplicates=0,detailRejected=0,dateRejected=0,outside=0,notUsed=0;
 const matches=[];
 const runFingerprints=new Set();
 const nextSearchState={...searchState};
@@ -141,9 +154,29 @@ for(const {search,found,healthy} of resultsBySearch.values()){
     if(known.has(key)){alreadyKnown++;continue}
 
     if(canDiff&& !prevIds.has(key)){
-      await send({url:c.url,target:search.targetLabel,area:search.area,...p});
-      sent++;
-      if(matches.length<12)matches.push({id:c.id,target:search.targetLabel,...p});
+      const detail=await ctx.newPage();
+      try{
+        await detail.goto(c.url,{waitUntil:'domcontentloaded',timeout:60000});
+        await detail.waitForTimeout(400);
+        const body=(await detail.locator('body').innerText().catch(()=>''))||'';
+        const title=(await detail.locator('h1').first().innerText().catch(()=>''))||p.title;
+        const condition=extractCondition(title,body);
+        const postedOn=extractPostedOn(body);
+        const city=extractLocation(body);
+        const transmission=extractTransmission(body)||p.transmission;
+        const price=extractPrice(body)||p.price;
+        if(!condition||!/used|مستعمل/i.test(condition)){notUsed++;continue}
+        if(!postedOn||!acceptedDates.has(postedOn)){dateRejected++;continue}
+        if(!city||!isGreaterCairo(city)){outside++;continue}
+        if(!price||!transmission||!title||!c.url){detailRejected++;continue}
+        if(search.manualOnly&&!isManual(transmission)){manualRejected++;continue}
+        await send({url:c.url,target:search.targetLabel,area:search.area,...p,title,city,transmission,price});
+        sent++;
+        if(matches.length<12)matches.push({id:c.id,target:search.targetLabel,title,year:p.year,price,city,transmission,postedOn});
+      }catch(e){
+        detailRejected++;
+        console.warn(`Hatla2ee detail ${c.id}: ${e.message}`);
+      }finally{await detail.close()}
     }else{
       baselineAdded++;
     }
@@ -155,7 +188,7 @@ for(const {search,found,healthy} of resultsBySearch.values()){
 
 const state={initialized:true,ids:[...known].slice(-15000),searchState:nextSearchState,lastRun:new Date().toISOString()};
 await fs.writeFile(statePath,JSON.stringify(state,null,2));
-console.log(`Hatla2ee baselineMode=${!initialized}, searches=${SEARCHES.length}, pagesVisited=${pagesVisited}, pagesWithCards=${pagesWithCards}, searchErrors=${searchErrors}, eligible=${eligible}, alreadyKnown=${alreadyKnown}, baselineAdded=${baselineAdded}, rebaselineSearches=${rebaselineSearches}, wrongYear=${wrongYear}, manualRejected=${manualRejected}, parseRejected=${parseRejected}, suppressedDuplicates=${suppressedDuplicates}, sent=${sent}`);
+console.log(`Hatla2ee baselineMode=${!initialized}, searches=${SEARCHES.length}, pagesVisited=${pagesVisited}, pagesWithCards=${pagesWithCards}, searchErrors=${searchErrors}, eligible=${eligible}, alreadyKnown=${alreadyKnown}, baselineAdded=${baselineAdded}, rebaselineSearches=${rebaselineSearches}, wrongYear=${wrongYear}, manualRejected=${manualRejected}, parseRejected=${parseRejected}, suppressedDuplicates=${suppressedDuplicates}, notUsed=${notUsed}, dateRejected=${dateRejected}, outside=${outside}, detailRejected=${detailRejected}, sent=${sent}`);
 if(pageSamples.length)console.log(`Hatla2ee pageSamples=${JSON.stringify(pageSamples)}`);
 if(matches.length)console.log(`Hatla2ee newMatchSamples=${JSON.stringify(matches)}`);
 await browser.close();
