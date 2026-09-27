@@ -86,15 +86,21 @@ async function scrapeTarget(target){
   }
 }
 
-let scraped=await Promise.all(TARGETS.map(scrapeTarget));
-if(scraped.every(x=>x.result.found.length===0)){
-  console.warn('Dubizzle health check: all searches returned 0 cards; retrying once after 20s');
-  await new Promise(resolve=>setTimeout(resolve,20000));
+let scraped=[];
+for(let attempt=1;attempt<=3;attempt++){
   scraped=await Promise.all(TARGETS.map(scrapeTarget));
+  const healthyPages=scraped.filter(x=>x.result.found.length>0).length;
+  const rawCards=scraped.reduce((sum,x)=>sum+x.result.found.length,0);
+  if(healthyPages>0&&rawCards>0){
+    if(attempt>1)console.log(`Dubizzle health recovered on attempt ${attempt}: pagesWithCards=${healthyPages}, rawCards=${rawCards}`);
+    break;
+  }
+  console.warn(`Dubizzle health check attempt ${attempt}/3 returned 0 cards across all searches`);
+  if(attempt<3)await new Promise(resolve=>setTimeout(resolve,attempt*20000));
 }
 if(scraped.every(x=>x.result.found.length===0)){
   await browser.close();
-  throw new Error('Dubizzle health check failed: all target searches returned 0 cards after retry; refusing false-success run');
+  throw new Error('Dubizzle health check failed: all target searches returned 0 cards after 3 fresh-context attempts; refusing false-success run');
 }
 
 for(const {target,result,usedUrl} of scraped){
