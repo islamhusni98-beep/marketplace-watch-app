@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.63.0-noble
-    timeout-minutes: 6
+    timeout-minutes: 350
     env:
       MAX_ITEMS: ${{ vars.MAX_ITEMS || '150' }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -37,8 +37,14 @@ jobs:
           key: dubizzle-seen-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             dubizzle-seen-
-      - name: Watch Dubizzle
-        run: node scripts/dubizzle-flex.mjs
+      - name: Watch Dubizzle continuously
+        shell: bash
+        run: |
+          for cycle in $(seq 1 30); do
+            echo "=== Dubizzle cycle $cycle/30 ==="
+            node scripts/dubizzle-flex.mjs || echo "Dubizzle cycle $cycle failed; continuing to next cycle"
+            if [ "$cycle" -lt 30 ]; then sleep 600; fi
+          done
       - if: always()
         uses: actions/cache/save@v4
         with:
@@ -49,7 +55,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.63.0-noble
-    timeout-minutes: 8
+    timeout-minutes: 350
     env:
       MAX_ITEMS: ${{ vars.MAX_ITEMS || '150' }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -63,8 +69,14 @@ jobs:
           key: hatla2ee-seen-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             hatla2ee-seen-
-      - name: Watch Hatla2ee
-        run: node scripts/hatla2ee-watch.mjs
+      - name: Watch Hatla2ee continuously
+        shell: bash
+        run: |
+          for cycle in $(seq 1 30); do
+            echo "=== Hatla2ee cycle $cycle/30 ==="
+            node scripts/hatla2ee-watch.mjs || echo "Hatla2ee cycle $cycle failed; continuing to next cycle"
+            if [ "$cycle" -lt 30 ]; then sleep 600; fi
+          done
       - if: always()
         uses: actions/cache/save@v4
         with:
