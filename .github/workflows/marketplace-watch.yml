@@ -3,7 +3,7 @@ name: Marketplace Watch
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '7 */5 * * *'
   push:
     branches: [main]
     paths:
@@ -16,7 +16,7 @@ permissions:
 
 concurrency:
   group: marketplace-watch
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   dubizzle:
@@ -40,9 +40,19 @@ jobs:
       - name: Watch Dubizzle continuously
         shell: bash
         run: |
+          failures=0
           for cycle in $(seq 1 30); do
             echo "=== Dubizzle cycle $cycle/30 ==="
-            node scripts/dubizzle-flex.mjs || echo "Dubizzle cycle $cycle failed; continuing to next cycle"
+            if node scripts/dubizzle-flex.mjs; then
+              failures=0
+            else
+              failures=$((failures + 1))
+              echo "Dubizzle cycle $cycle failed (consecutive failures: $failures/3)"
+              if [ "$failures" -ge 3 ]; then
+                echo "Dubizzle failed 3 consecutive cycles; failing job"
+                exit 1
+              fi
+            fi
             if [ "$cycle" -lt 30 ]; then sleep 600; fi
           done
       - if: always()
@@ -72,9 +82,19 @@ jobs:
       - name: Watch Hatla2ee continuously
         shell: bash
         run: |
+          failures=0
           for cycle in $(seq 1 30); do
             echo "=== Hatla2ee cycle $cycle/30 ==="
-            node scripts/hatla2ee-watch.mjs || echo "Hatla2ee cycle $cycle failed; continuing to next cycle"
+            if node scripts/hatla2ee-watch.mjs; then
+              failures=0
+            else
+              failures=$((failures + 1))
+              echo "Hatla2ee cycle $cycle failed (consecutive failures: $failures/3)"
+              if [ "$failures" -ge 3 ]; then
+                echo "Hatla2ee failed 3 consecutive cycles; failing job"
+                exit 1
+              fi
+            fi
             if [ "$cycle" -lt 30 ]; then sleep 600; fi
           done
       - if: always()
