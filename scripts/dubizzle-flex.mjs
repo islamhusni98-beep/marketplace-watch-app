@@ -52,6 +52,10 @@ async function send(i){
 async function scrape(page,url){
   await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000});
   await page.waitForTimeout(1400);
+  const pageTitle=await page.title().catch(()=> '');
+  const bodyText=(await page.locator('body').innerText({timeout:5000}).catch(()=> '')).slice(0,5000);
+  const challenge=/captcha|captchaChallenge|verify you are human|security check|challenge-platform|unusual traffic/i.test(`${page.url()} ${pageTitle} ${bodyText}`);
+  if(challenge) throw new Error(`Dubizzle anti-bot challenge detected at ${page.url()}`);
   for(let i=0;i<5;i++){await page.mouse.wheel(0,2300);await page.waitForTimeout(180)}
   const cards=page.locator('li[aria-label="Listing"]');
   const count=await cards.count();
