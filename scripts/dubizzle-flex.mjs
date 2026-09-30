@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import * as cheerio from 'cheerio';
 
 const TOKEN=process.env.TELEGRAM_BOT_TOKEN;
 const CHAT=process.env.TELEGRAM_CHAT_ID;
@@ -49,6 +50,35 @@ async function send(i){
   }
 }
 
+async function scrapeHttp(url){
+  const r=await fetch(url,{headers:{
+    'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
+    'accept':'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'accept-language':'en-US,en;q=0.9'
+  },redirect:'follow'});
+  if(!r.ok) throw new Error(`Dubizzle HTTP ${r.status}`);
+  const html=await r.text();
+  if(/captchaChallenge|verify you are human|security check|challenge-platform|unusual traffic/i.test(html)) throw new Error('Dubizzle HTTP anti-bot challenge detected');
+  const $=cheerio.load(html);
+  const nodes=$('li[aria-label="Listing"]');
+  const found=[];
+  nodes.slice(0,MAX_ITEMS).each((_,el)=>{
+    const card=$(el);
+    const text=card.text().replace(/\s+/g,' ').trim();
+    const href=card.find('a[href*="/ad/"]').first().attr('href')||'';
+    const url=href ? new URL(href,'https://www.dubizzle.com.eg').href.split('?')[0].split('#')[0] : '';
+    const id=url.match(/ID(\d+)\.html/i)?.[1]||'';
+    const title=card.find('a[title]').first().attr('title')||card.find('h2').first().text().trim();
+    const price=(text.match(/EGP\s*[\d,]+(?:\s*Negotiable)?/i)||[])[0]||'';
+    const year=(text.match(/\bYear\s*((?:19|20)\d{2})\b/i)||[])[1]||'';
+    const km=(text.match(/\b(?:Kilometers|Mileage)\s*([\d,]+)/i)||[])[1]||'';
+    const transmission=(text.match(/\bTransmission\s*(Automatic|Manual|A\/T|M\/T)/i)||[])[1]||'';
+    const condition=(text.match(/\bCondition\s*(Used|New)\b/i)||[])[1]||'';
+    if(id) found.push({id,url,title,price,year,km,transmission,condition,text});
+  });
+  return {count:nodes.length,found,finalUrl:r.url,source:'http'};
+}
+
 async function scrape(page,url){
   await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000});
   await page.waitForTimeout(1400);
@@ -80,8 +110,15 @@ async function scrapeTarget(target){
   let result={count:0,found:[],finalUrl:''},usedUrl='';
   try{
     for(let i=0;i<target.urls.length;i++){
-      try{result=await scrape(page,target.urls[i]);usedUrl=target.urls[i];}catch(e){console.warn(`Dubizzle model ${target.name} source ${i+1}: ${e.message}`);result={count:0,found:[],finalUrl:''};}
-      if(result.found.length){if(i>0)fallbackUsed++;break;}
+      usedUrl=target.urls[i];
+      try{
+        result=await scrapeHttp(target.urls[i]);
+        if(result.found.length){console.log(`Dubizzle model ${target.name}: HTTP source healthy`);if(i>0)fallbackUsed++;break;}
+      }catch(e){
+        console.warn(`Dubizzle model ${target.name} HTTP source ${i+1}: ${e.message}`);
+        try{result=await scrape(page,target.urls[i]);}catch(pe){console.warn(`Dubizzle model ${target.name} browser source ${i+1}: ${pe.message}`);result={count:0,found:[],finalUrl:''};}
+        if(result.found.length){if(i>0)fallbackUsed++;break;}
+      }
     }
     return {target,result,usedUrl};
   } finally {
