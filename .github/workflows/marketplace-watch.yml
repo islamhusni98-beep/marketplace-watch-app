@@ -41,8 +41,8 @@ jobs:
         shell: bash
         run: |
           failures=0
-          for cycle in $(seq 1 30); do
-            echo "=== Dubizzle cycle $cycle/30 ==="
+          for cycle in $(seq 1 10); do
+            echo "=== Dubizzle cycle $cycle/10 ==="
             if node scripts/dubizzle-flex.mjs; then
               failures=0
             else
@@ -53,7 +53,7 @@ jobs:
                 exit 1
               fi
             fi
-            if [ "$cycle" -lt 30 ]; then sleep 600; fi
+            if [ "$cycle" -lt 10 ]; then sleep 1800; fi
           done
       - if: always()
         uses: actions/cache/save@v4
