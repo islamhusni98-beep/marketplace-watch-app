@@ -92,7 +92,11 @@ async function scrapeTarget(target){
 
 let scraped=[];
 for(let attempt=1;attempt<=3;attempt++){
-  scraped=await Promise.all(TARGETS.map(scrapeTarget));
+  scraped=[];
+  for(const target of TARGETS){
+    scraped.push(await scrapeTarget(target));
+    await new Promise(resolve=>setTimeout(resolve,1500));
+  }
   const healthyPages=scraped.filter(x=>x.result.found.length>0).length;
   const rawCards=scraped.reduce((sum,x)=>sum+x.result.found.length,0);
   if(healthyPages>0&&rawCards>0){
@@ -100,7 +104,7 @@ for(let attempt=1;attempt<=3;attempt++){
     break;
   }
   console.warn(`Dubizzle health check attempt ${attempt}/3 returned 0 cards across all searches`);
-  if(attempt<3)await new Promise(resolve=>setTimeout(resolve,attempt*20000));
+  if(attempt<3)await new Promise(resolve=>setTimeout(resolve,attempt*60000));
 }
 if(scraped.every(x=>x.result.found.length===0)){
   await browser.close();
