@@ -64,7 +64,9 @@ async function scrapeHttp(url){
   const found=[];
   nodes.slice(0,MAX_ITEMS).each((_,el)=>{
     const card=$(el);
-    const text=card.text().replace(/\s+/g,' ').trim();
+    const parts=[];
+    card.find('*').each((_,node)=>{if($(node).children().length===0){const v=$(node).text().replace(/\s+/g,' ').trim();if(v&&parts[parts.length-1]!==v)parts.push(v);}});
+    const text=parts.join('\n');
     const href=card.find('a[href*="/ad/"]').first().attr('href')||'';
     const url=href ? new URL(href,'https://www.dubizzle.com.eg').href.split('?')[0].split('#')[0] : '';
     const id=url.match(/ID(\d+)\.html/i)?.[1]||'';
