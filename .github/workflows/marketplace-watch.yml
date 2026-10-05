@@ -10,7 +10,9 @@ on:
       - '.github/workflows/marketplace-watch.yml'
       - 'scripts/dubizzle-flex.mjs'
       - 'scripts/dubizzle-policy.mjs'
+      - 'scripts/hatla2ee-policy.mjs'
       - 'tests/dubizzle-policy.test.mjs'
+      - 'tests/hatla2ee-policy.test.mjs'
       - 'scripts/hatla2ee-watch.mjs'
 
 permissions:

@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { hasConflictingPrice, hasRequiredHatla2eeCardData } from './hatla2ee-policy.mjs';
 
 const TARGETS = [
   ['Nissan Sunny','nissan/sunny',2016,false],
@@ -121,7 +122,7 @@ for(const search of SEARCHES){
   }finally{await page.close()}
 }
 
-let eligible=0,baselineAdded=0,sent=0,alreadyKnown=0,wrongYear=0,manualRejected=0,parseRejected=0,rebaselineSearches=0,suppressedDuplicates=0,detailRejected=0,dateRejected=0,outside=0,notUsed=0;
+let eligible=0,baselineAdded=0,sent=0,alreadyKnown=0,wrongYear=0,manualRejected=0,parseRejected=0,rebaselineSearches=0,suppressedDuplicates=0,detailRejected=0,dateRejected=0,outside=0,notUsed=0,priceRejected=0;
 const matches=[];
 const runFingerprints=new Set();
 const nextSearchState={...searchState};
@@ -141,7 +142,7 @@ for(const {search,found,healthy} of resultsBySearch.values()){
   for(const c of found){
     const p=parseCard(c,search.targetLabel,search.area);
     if(!p.year||p.year<search.minYear||p.year>2026){wrongYear++;continue}
-    if(!p.price||!p.city){parseRejected++;continue}
+    if(!hasRequiredHatla2eeCardData(p)){parseRejected++;continue}
     if(search.manualOnly&&!isManual(`${p.transmission}\n${c.cardText}`)){manualRejected++;continue}
     eligible++;
     const key=`Hatla2ee:${c.id}`;
@@ -175,6 +176,7 @@ for(const {search,found,healthy} of resultsBySearch.values()){
         if(!postedOn||!acceptedDates.has(postedOn)){dateRejected++;continue}
         if(!city||!isGreaterCairo(city)){outside++;continue}
         if(!price||!transmission||!title||!c.url){detailRejected++;continue}
+        if(hasConflictingPrice(price,body)){priceRejected++;console.warn(`Hatla2ee detail ${c.id}: displayed price conflicts with the labeled asking price; suppressing notification`);continue}
         if(search.manualOnly&&!isManual(transmission)){manualRejected++;continue}
         await send({url:c.url,target:search.targetLabel,area:search.area,...p,title,city,transmission,price});
         sent++;
@@ -194,7 +196,7 @@ for(const {search,found,healthy} of resultsBySearch.values()){
 
 const state={initialized:true,ids:[...known].slice(-15000),searchState:nextSearchState,lastRun:new Date().toISOString()};
 await fs.writeFile(statePath,JSON.stringify(state,null,2));
-console.log(`Hatla2ee baselineMode=${!initialized}, searches=${SEARCHES.length}, pagesVisited=${pagesVisited}, pagesWithCards=${pagesWithCards}, searchErrors=${searchErrors}, eligible=${eligible}, alreadyKnown=${alreadyKnown}, baselineAdded=${baselineAdded}, rebaselineSearches=${rebaselineSearches}, wrongYear=${wrongYear}, manualRejected=${manualRejected}, parseRejected=${parseRejected}, suppressedDuplicates=${suppressedDuplicates}, notUsed=${notUsed}, dateRejected=${dateRejected}, outside=${outside}, detailRejected=${detailRejected}, sent=${sent}`);
+console.log(`Hatla2ee baselineMode=${!initialized}, searches=${SEARCHES.length}, pagesVisited=${pagesVisited}, pagesWithCards=${pagesWithCards}, searchErrors=${searchErrors}, eligible=${eligible}, alreadyKnown=${alreadyKnown}, baselineAdded=${baselineAdded}, rebaselineSearches=${rebaselineSearches}, wrongYear=${wrongYear}, manualRejected=${manualRejected}, parseRejected=${parseRejected}, priceRejected=${priceRejected}, suppressedDuplicates=${suppressedDuplicates}, notUsed=${notUsed}, dateRejected=${dateRejected}, outside=${outside}, detailRejected=${detailRejected}, sent=${sent}`);
 if(pageSamples.length)console.log(`Hatla2ee pageSamples=${JSON.stringify(pageSamples)}`);
 if(matches.length)console.log(`Hatla2ee newMatchSamples=${JSON.stringify(matches)}`);
 await browser.close();
