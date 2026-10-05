@@ -1,6 +1,9 @@
 import { chromium } from 'playwright';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { throwIfDubizzleAutomationPaused } from './dubizzle-policy.mjs';
+
+throwIfDubizzleAutomationPaused();
 
 // Final user-interest filter. Each target also has a Dubizzle search slug so
 // we search the model directly instead of scanning only the first generic page.

@@ -14,6 +14,10 @@ on:
       - 'tests/dubizzle-policy.test.mjs'
       - 'tests/hatla2ee-policy.test.mjs'
       - 'scripts/hatla2ee-watch.mjs'
+      - 'scripts/dubizzle-watch.mjs'
+      - 'scripts/dubizzle-wide.mjs'
+      - 'scripts/dubizzle-structured-extra.mjs'
+      - 'scripts/marketplace-watch.mjs'
 
 permissions:
   contents: read
@@ -23,55 +27,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  dubizzle:
+  validate:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.63.0-noble
-    timeout-minutes: 350
-    env:
-      MAX_ITEMS: ${{ vars.MAX_ITEMS || '150' }}
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: '@marketpalacebedo'
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - run: npm install --no-audit --no-fund
-      - uses: actions/cache/restore@v4
-        with:
-          path: data/seen-dubizzle.json
-          key: dubizzle-seen-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            dubizzle-seen-
-      - name: Validate Dubizzle safety policy
+      - name: Run policy and health tests
         run: npm test
-      - name: Watch Dubizzle continuously
-        shell: bash
+
+  dubizzle-paused:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report source status
         run: |
-          cycles=10
-          max_failures=3
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            cycles=1
-            max_failures=1
-          fi
-          failures=0
-          for cycle in $(seq 1 "$cycles"); do
-            echo "=== Dubizzle cycle $cycle/$cycles ==="
-            if node scripts/dubizzle-flex.mjs; then
-              failures=0
-            else
-              failures=$((failures + 1))
-              echo "Dubizzle cycle $cycle failed (consecutive failures: $failures/$max_failures)"
-              if [ "$failures" -ge "$max_failures" ]; then
-                echo "Dubizzle reached the failure threshold ($max_failures); failing job"
-                exit 1
-              fi
-            fi
-            if [ "$cycle" -lt "$cycles" ]; then sleep 1800; fi
-          done
-      - if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: data/seen-dubizzle.json
-          key: dubizzle-seen-${{ github.run_id }}-${{ github.run_attempt }}
+          echo "::notice title=Dubizzle checks paused::Automated scraping remains paused unless Dubizzle explicitly allows an approved access method."
+          echo "No Dubizzle HTTP/browser request or Telegram notification was made."
 
   hatla2ee:
     runs-on: ubuntu-latest

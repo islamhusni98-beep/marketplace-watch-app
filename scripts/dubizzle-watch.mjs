@@ -1,6 +1,9 @@
 import { chromium } from 'playwright';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { throwIfDubizzleAutomationPaused } from './dubizzle-policy.mjs';
+
+throwIfDubizzleAutomationPaused();
 
 const SEARCHES = [
   ['Nissan Sunny','https://www.dubizzle.com.eg/vehicles/cars-for-sale/used/q-nissan-sunny/'],

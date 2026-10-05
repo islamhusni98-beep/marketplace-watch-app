@@ -2,7 +2,9 @@ import { chromium } from 'playwright';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import * as cheerio from 'cheerio';
-import { DubizzleUnavailableError, isDefinitiveDubizzleFailure, isUsedListingConditionAllowed } from './dubizzle-policy.mjs';
+import { DubizzleUnavailableError, isDefinitiveDubizzleFailure, isUsedListingConditionAllowed, throwIfDubizzleAutomationPaused } from './dubizzle-policy.mjs';
+
+throwIfDubizzleAutomationPaused();
 
 const TOKEN=process.env.TELEGRAM_BOT_TOKEN;
 const CHAT=process.env.TELEGRAM_CHAT_ID;

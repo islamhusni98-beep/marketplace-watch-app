@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   isDefinitiveDubizzleFailure,
   isUsedListingConditionAllowed,
+  throwIfDubizzleAutomationPaused,
 } from '../scripts/dubizzle-policy.mjs';
 
 test('allows an explicitly used vehicle', () => {
@@ -28,4 +29,12 @@ test('stops browser fallback after access denial, rate limit, or server outage',
   for (const status of [200, 400, 404]) {
     assert.equal(isDefinitiveDubizzleFailure(status), false);
   }
+});
+
+
+test('keeps automated Dubizzle access paused until an explicitly allowed integration exists', () => {
+  assert.throws(
+    () => throwIfDubizzleAutomationPaused(),
+    /paused until Dubizzle explicitly allows an approved API or feed integration/,
+  );
 });

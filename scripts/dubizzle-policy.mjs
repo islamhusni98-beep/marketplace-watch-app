@@ -19,3 +19,9 @@ export function isUsedListingConditionAllowed(condition, usedRoute) {
   if (/\bnew\b|جديد/i.test(value) || /\bnot\s+used\b|غير\s+مستعمل/i.test(value)) return false;
   return /\bused\b|مستعمل/i.test(value);
 }
+
+export function throwIfDubizzleAutomationPaused() {
+  throw new Error(
+    'Dubizzle monitoring is paused until Dubizzle explicitly allows an approved API or feed integration.',
+  );
+}
