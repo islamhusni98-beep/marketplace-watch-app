@@ -2,6 +2,7 @@ import { chromium } from 'playwright';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import * as cheerio from 'cheerio';
+import { DubizzleUnavailableError, isDefinitiveDubizzleFailure, isUsedListingConditionAllowed } from './dubizzle-policy.mjs';
 
 const TOKEN=process.env.TELEGRAM_BOT_TOKEN;
 const CHAT=process.env.TELEGRAM_CHAT_ID;
@@ -56,9 +57,12 @@ async function scrapeHttp(url){
     'accept':'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     'accept-language':'en-US,en;q=0.9'
   },redirect:'follow'});
-  if(!r.ok) throw new Error(`Dubizzle HTTP ${r.status}`);
+  if(!r.ok){
+    if(isDefinitiveDubizzleFailure(r.status)) throw new DubizzleUnavailableError('HTTP request rejected',r.url||url,r.status);
+    throw new Error(`Dubizzle HTTP ${r.status}`);
+  }
   const html=await r.text();
-  if(/captchaChallenge|verify you are human|security check|challenge-platform|unusual traffic/i.test(html)) throw new Error('Dubizzle HTTP anti-bot challenge detected');
+  if(/captchaChallenge|verify you are human|security check|challenge-platform|unusual traffic/i.test(html)) throw new DubizzleUnavailableError('HTTP anti-bot challenge detected',r.url||url);
   const $=cheerio.load(html);
   const nodes=$('li[aria-label="Listing"]');
   const found=[];
@@ -87,7 +91,7 @@ async function scrape(page,url){
   const pageTitle=await page.title().catch(()=> '');
   const bodyText=(await page.locator('body').innerText({timeout:5000}).catch(()=> '')).slice(0,5000);
   const challenge=/captcha|captchaChallenge|verify you are human|security check|challenge-platform|unusual traffic/i.test(`${page.url()} ${pageTitle} ${bodyText}`);
-  if(challenge) throw new Error(`Dubizzle anti-bot challenge detected at ${page.url()}`);
+  if(challenge) throw new DubizzleUnavailableError('anti-bot challenge detected',page.url());
   for(let i=0;i<5;i++){await page.mouse.wheel(0,2300);await page.waitForTimeout(180)}
   const cards=page.locator('li[aria-label="Listing"]');
   const count=await cards.count();
@@ -118,7 +122,8 @@ async function scrapeTarget(target){
         if(result.found.length){console.log(`Dubizzle model ${target.name}: HTTP source healthy`);if(i>0)fallbackUsed++;break;}
       }catch(e){
         console.warn(`Dubizzle model ${target.name} HTTP source ${i+1}: ${e.message}`);
-        try{result=await scrape(page,target.urls[i]);}catch(pe){console.warn(`Dubizzle model ${target.name} browser source ${i+1}: ${pe.message}`);result={count:0,found:[],finalUrl:''};}
+        if(e instanceof DubizzleUnavailableError) throw e;
+        try{result=await scrape(page,target.urls[i]);}catch(pe){console.warn(`Dubizzle model ${target.name} browser source ${i+1}: ${pe.message}`);if(pe instanceof DubizzleUnavailableError) throw pe;result={count:0,found:[],finalUrl:''};}
         if(result.found.length){if(i>0)fallbackUsed++;break;}
       }
     }
@@ -130,6 +135,7 @@ async function scrapeTarget(target){
 }
 
 let scraped=[];
+try {
 for(let attempt=1;attempt<=3;attempt++){
   scraped=[];
   for(const target of TARGETS){
@@ -144,6 +150,11 @@ for(let attempt=1;attempt<=3;attempt++){
   }
   console.warn(`Dubizzle health check attempt ${attempt}/3 returned 0 cards across all searches`);
   if(attempt<3)await new Promise(resolve=>setTimeout(resolve,attempt*60000));
+}
+} catch(error) {
+  await browser.close();
+  if(error instanceof DubizzleUnavailableError) console.error('Dubizzle source unavailable; stopped after the first blocked response. No browser fallback, additional search requests, or Telegram notifications were attempted for this cycle.');
+  throw error;
 }
 if(scraped.every(x=>x.result.found.length===0)){
   await browser.close();
@@ -160,8 +171,7 @@ for(const {target,result,usedUrl} of scraped){
     const lines=c.text.split('\n').map(x=>x.trim()).filter(Boolean);
     target.re.lastIndex=0;if(!target.re.test(`${c.title} ${c.text}`)){modelRejected++;continue}
     const condition=c.condition||after(lines,/^Condition$/i);
-    const explicitlyUsed=/\bused\b|مستعمل/i.test(condition);
-    if(!explicitlyUsed&&!usedRoute){conditionRejected++;continue}
+    if(!isUsedListingConditionAllowed(condition,usedRoute)){conditionRejected++;continue}
     const year=Number(c.year||((c.text.match(/\b(?:19|20)\d{2}\b/)||[])[0]||0));if(!year||year<target.minYear||year>2026){wrongYear++;continue}
     const km=c.km||after(lines,/^(Kilometers|Mileage)$/i);if(!km||!/\d/.test(km)){parseRejected++;continue}
     const transmission=c.transmission||after(lines,/^Transmission$/i);if(!transmission||!/automatic|manual|a\/t|m\/t|اوتوماتيك|أوتوماتيك|مانيوال|يدوي/i.test(transmission)){parseRejected++;continue}

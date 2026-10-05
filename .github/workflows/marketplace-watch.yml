@@ -9,6 +9,8 @@ on:
     paths:
       - '.github/workflows/marketplace-watch.yml'
       - 'scripts/dubizzle-flex.mjs'
+      - 'scripts/dubizzle-policy.mjs'
+      - 'tests/dubizzle-policy.test.mjs'
       - 'scripts/hatla2ee-watch.mjs'
 
 permissions:
@@ -37,23 +39,31 @@ jobs:
           key: dubizzle-seen-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             dubizzle-seen-
+      - name: Validate Dubizzle safety policy
+        run: npm test
       - name: Watch Dubizzle continuously
         shell: bash
         run: |
+          cycles=10
+          max_failures=3
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            cycles=1
+            max_failures=1
+          fi
           failures=0
-          for cycle in $(seq 1 10); do
-            echo "=== Dubizzle cycle $cycle/10 ==="
+          for cycle in $(seq 1 "$cycles"); do
+            echo "=== Dubizzle cycle $cycle/$cycles ==="
             if node scripts/dubizzle-flex.mjs; then
               failures=0
             else
               failures=$((failures + 1))
-              echo "Dubizzle cycle $cycle failed (consecutive failures: $failures/3)"
-              if [ "$failures" -ge 3 ]; then
-                echo "Dubizzle failed 3 consecutive cycles; failing job"
+              echo "Dubizzle cycle $cycle failed (consecutive failures: $failures/$max_failures)"
+              if [ "$failures" -ge "$max_failures" ]; then
+                echo "Dubizzle reached the failure threshold ($max_failures); failing job"
                 exit 1
               fi
             fi
-            if [ "$cycle" -lt 10 ]; then sleep 1800; fi
+            if [ "$cycle" -lt "$cycles" ]; then sleep 1800; fi
           done
       - if: always()
         uses: actions/cache/save@v4
@@ -82,20 +92,26 @@ jobs:
       - name: Watch Hatla2ee continuously
         shell: bash
         run: |
+          cycles=30
+          max_failures=3
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            cycles=1
+            max_failures=1
+          fi
           failures=0
-          for cycle in $(seq 1 30); do
-            echo "=== Hatla2ee cycle $cycle/30 ==="
+          for cycle in $(seq 1 "$cycles"); do
+            echo "=== Hatla2ee cycle $cycle/$cycles ==="
             if node scripts/hatla2ee-watch.mjs; then
               failures=0
             else
               failures=$((failures + 1))
-              echo "Hatla2ee cycle $cycle failed (consecutive failures: $failures/3)"
-              if [ "$failures" -ge 3 ]; then
-                echo "Hatla2ee failed 3 consecutive cycles; failing job"
+              echo "Hatla2ee cycle $cycle failed (consecutive failures: $failures/$max_failures)"
+              if [ "$failures" -ge "$max_failures" ]; then
+                echo "Hatla2ee reached the failure threshold ($max_failures); failing job"
                 exit 1
               fi
             fi
-            if [ "$cycle" -lt 30 ]; then sleep 600; fi
+            if [ "$cycle" -lt "$cycles" ]; then sleep 600; fi
           done
       - if: always()
         uses: actions/cache/save@v4
