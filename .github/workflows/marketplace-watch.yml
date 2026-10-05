@@ -36,6 +36,13 @@ jobs:
         with:
           node-version: '22'
       - run: npm install --no-audit --no-fund
+      - name: Check watcher script syntax
+        run: |
+          node --check scripts/dubizzle-flex.mjs
+          node --check scripts/dubizzle-watch.mjs
+          node --check scripts/dubizzle-wide.mjs
+          node --check scripts/dubizzle-structured-extra.mjs
+          node --check scripts/marketplace-watch.mjs
       - name: Run policy and health tests
         run: npm test
 
