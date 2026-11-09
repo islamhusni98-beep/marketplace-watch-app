@@ -1,0 +1,51 @@
+name: Cars under 250k — Hatla2ee and Dubizzle
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cars-under-250k-watch
+  cancel-in-progress: false
+
+jobs:
+  hatla2ee:
+    name: Hatla2ee alerts to carsunder250k
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+    timeout-minutes: 20
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: "@carsunder250k"
+      MAX_ITEMS: ${{ vars.MAX_ITEMS || '150' }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm install --no-audit --no-fund
+      - uses: actions/cache/restore@v4
+        with:
+          path: data/seen-hatla2ee-under-250k.json
+          key: cars-under-250k-hatla2ee-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            cars-under-250k-hatla2ee-
+      - name: Scan Hatla2ee and publish new matching cars
+        run: node scripts/hatla2ee-under-250k.mjs
+      - if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/seen-hatla2ee-under-250k.json
+          key: cars-under-250k-hatla2ee-${{ github.run_id }}-${{ github.run_attempt }}
+
+  dubizzle-paused:
+    name: Dubizzle access approval required
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain why no automated request is made
+        run: |
+          echo "::notice title=Dubizzle source paused::Dubizzle's published terms prohibit automated scraping without explicit permission. This job makes no Dubizzle request."
+          echo "Activate this source only through an approved API/feed or written permission from Dubizzle."
