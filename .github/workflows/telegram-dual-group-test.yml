@@ -1,0 +1,60 @@
+name: Telegram dual-group delivery test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  send-test-messages:
+    runs-on: ubuntu-latest
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      OLD_CHAT: "@marketpalacebedo"
+      NEW_CHAT: "@carsunder250k"
+    steps:
+      - name: Send one clearly labeled test message to each group
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+
+          token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+          if not token:
+              raise SystemExit("TELEGRAM_BOT_TOKEN secret is missing.")
+
+          message = "🧪 اختبار ربط البوت — رسالة تجريبية للتأكد من وصول النشر للجروب."
+          failures = 0
+
+          for label, chat_id in (
+              ("old group", os.environ["OLD_CHAT"]),
+              ("new group", os.environ["NEW_CHAT"]),
+          ):
+              request = urllib.request.Request(
+                  f"https://api.telegram.org/bot{token}/sendMessage",
+                  data=json.dumps({"chat_id": chat_id, "text": message}).encode(),
+                  headers={"Content-Type": "application/json"},
+                  method="POST",
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      result = json.loads(response.read().decode())
+              except urllib.error.HTTPError as error:
+                  result = json.loads(error.read().decode())
+              except Exception as error:
+                  print(f"{label}: transport error ({type(error).__name__})")
+                  failures += 1
+                  continue
+
+              if result.get("ok"):
+                  print(f"{label}: sent (message_id={result['result']['message_id']})")
+              else:
+                  print(f"{label}: rejected ({result.get('description', 'unknown error')})")
+                  failures += 1
+
+          if failures:
+              raise SystemExit(f"Delivery test failed for {failures} destination(s).")
+          PY
