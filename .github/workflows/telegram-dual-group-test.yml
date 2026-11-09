@@ -1,10 +1,6 @@
 name: Telegram dual-group delivery test
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/telegram-dual-group-test.yml"
   workflow_dispatch:
 
 permissions:
@@ -12,10 +8,7 @@ permissions:
 
 jobs:
   send-test-messages:
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
-          (github.event_name == 'push' &&
-           github.event.head_commit.message == 'Run one-time Telegram dual-group delivery test [one-time-telegram-test]') }}
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
