@@ -1,6 +1,10 @@
 name: Telegram dual-group delivery test
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/telegram-dual-group-test.yml"
   workflow_dispatch:
 
 permissions:
@@ -8,7 +12,10 @@ permissions:
 
 jobs:
   send-test-messages:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.event_name == 'push' &&
+           github.event.head_commit.message == 'Run Telegram dual-group retest [telegram-retest-2026-11-09]') }}
     runs-on: ubuntu-latest
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -27,7 +34,7 @@ jobs:
           if not token:
               raise SystemExit("TELEGRAM_BOT_TOKEN secret is missing.")
 
-          message = "🧪 اختبار ربط البوت — رسالة تجريبية للتأكد من وصول النشر للجروب."
+          message = "🧪 إعادة اختبار ربط البوت — رسالة تجريبية للتأكد من وصول النشر للجروب."
           failures = 0
 
           for label, chat_id in (
