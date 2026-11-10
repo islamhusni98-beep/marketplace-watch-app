@@ -7,7 +7,7 @@ on:
       - '.github/workflows/cars-under-250k.yml'
       - 'scripts/hatla2ee-under-250k.mjs'
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
 
 permissions:
