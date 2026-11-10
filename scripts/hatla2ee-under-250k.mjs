@@ -4,12 +4,12 @@ import path from 'node:path';
 import { hasRequiredHatla2eeCardData } from './hatla2ee-policy.mjs';
 
 const SEARCHES=[
-  {label:'Cars under 250k - Egypt',url:'https://eg.hatla2ee.com/en/car/price-limit/250000',targetLabel:'سيارات حتى 250 ألف جنيه',minYear:1980,manualOnly:false,area:'Egypt'},
+  {label:'Cars under 300k - Egypt',url:'https://eg.hatla2ee.com/en/car/price-limit/300000',targetLabel:'سيارات حتى 300 ألف جنيه',minYear:1980,manualOnly:false,area:'Egypt'},
 ];
 
 const TOKEN=process.env.TELEGRAM_BOT_TOKEN;
 const CHAT=process.env.TELEGRAM_CHAT_ID;
-const MAX_PRICE_EGP=250000;
+const MAX_PRICE_EGP=300000;
 if(!TOKEN||!CHAT) throw new Error('Telegram config missing');
 
 const MIN_REQUEST_INTERVAL_MS=4000;

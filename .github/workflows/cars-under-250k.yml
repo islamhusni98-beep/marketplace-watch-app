@@ -1,4 +1,4 @@
-name: Cars under 250k — Hatla2ee and Dubizzle
+name: Cars under 300k — Hatla2ee and Dubizzle
 
 on:
   push:
@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   hatla2ee:
-    name: Hatla2ee alerts to carsunder250k
+    name: Hatla2ee alerts to carsunder300k
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.63.0-noble
@@ -34,8 +34,9 @@ jobs:
       - uses: actions/cache/restore@v4
         with:
           path: data/seen-hatla2ee-under-250k.json
-          key: cars-under-250k-hatla2ee-${{ github.run_id }}-${{ github.run_attempt }}
+          key: cars-under-300k-hatla2ee-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
+            cars-under-300k-hatla2ee-
             cars-under-250k-hatla2ee-
       - name: Scan Hatla2ee and publish new matching cars
         run: node scripts/hatla2ee-under-250k.mjs
@@ -43,7 +44,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: data/seen-hatla2ee-under-250k.json
-          key: cars-under-250k-hatla2ee-${{ github.run_id }}-${{ github.run_attempt }}
+          key: cars-under-300k-hatla2ee-${{ github.run_id }}-${{ github.run_attempt }}
 
   dubizzle-paused:
     name: Dubizzle access approval required
