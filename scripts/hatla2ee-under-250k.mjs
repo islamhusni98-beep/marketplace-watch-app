@@ -4,8 +4,7 @@ import path from 'node:path';
 import { hasRequiredHatla2eeCardData } from './hatla2ee-policy.mjs';
 
 const SEARCHES=[
-  {label:'All makes - Cairo',url:'https://eg.hatla2ee.com/en/car/city/cairo',targetLabel:'سيارات حتى 250 ألف جنيه',minYear:1980,manualOnly:false,area:'Cairo'},
-  {label:'All makes - Giza',url:'https://eg.hatla2ee.com/en/car/city/giza',targetLabel:'سيارات حتى 250 ألف جنيه',minYear:1980,manualOnly:false,area:'Giza'},
+  {label:'Cars under 250k - Egypt',url:'https://eg.hatla2ee.com/en/car/price-limit/250000',targetLabel:'سيارات حتى 250 ألف جنيه',minYear:1980,manualOnly:false,area:'Egypt'},
 ];
 
 const TOKEN=process.env.TELEGRAM_BOT_TOKEN;
@@ -111,7 +110,7 @@ for(const search of SEARCHES){
     const found=await page.locator('a[href*="/en/car/"]').evaluateAll(links=>{
       const out=[],ids=new Set();
       for(const a of links){
-        const href=a.href||'';const id=href.match(/\/(\d+)\/?(?:\?.*)?$/)?.[1];
+        const href=a.href||'';const id=href.match(/\/en\/car\/[^/]+\/[^/]+\/(\d+)\/?(?:\?.*)?$/)?.[1];
         if(!id||ids.has(id))continue;
         let node=a,txt='';
         for(let d=0;d<8&&node;d++,node=node.parentElement){
