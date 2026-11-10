@@ -3,24 +3,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { hasConflictingPrice, hasRequiredHatla2eeCardData } from './hatla2ee-policy.mjs';
 
-const TARGETS = [
-  ['Nissan Sunny','nissan/sunny',2016,false],
-  ['Chevrolet Aveo','chevrolet/aveo',2016,false],
-  ['Chevrolet New Optra','chevrolet/optra',2016,false],
-  ['Hyundai Accent RB','hyundai/Accent-RB',2016,false],
-  ['BYD F3','byd/f3',2021,false],
-  ['Hyundai Elantra HD','hyundai/Elantra-HD',2017,false],
-  ['Hyundai Verna','hyundai/verna',2016,false],
-  ['Chevrolet Lanos','chevrolet/lanos2',2016,false],
-  ['Chery Arrizo 5','chery/Arrizo-5',2019,true],
+const SEARCHES=[
+  {label:'All makes - Cairo',url:'https://eg.hatla2ee.com/en/car/city/cairo',targetLabel:'سيارات حتى 250 ألف جنيه',minYear:1980,manualOnly:false,area:'Cairo'},
+  {label:'All makes - Giza',url:'https://eg.hatla2ee.com/en/car/city/giza',targetLabel:'سيارات حتى 250 ألف جنيه',minYear:1980,manualOnly:false,area:'Giza'},
 ];
-const AREAS=[['Giza','giza'],['Cairo','cairo']];
-const SEARCHES=[];
-for(const [label,slug,minYear,manualOnly] of TARGETS){
-  for(const [area,citySlug] of AREAS){
-    SEARCHES.push({label:`${label} - ${area}`,url:`https://eg.hatla2ee.com/en/car/city/${citySlug}/${slug}`,targetLabel:label,minYear,manualOnly,area});
-  }
-}
 
 const TOKEN=process.env.TELEGRAM_BOT_TOKEN;
 const CHAT=process.env.TELEGRAM_CHAT_ID;
@@ -65,7 +51,7 @@ try{
 
 function latinDigits(s=''){return String(s).replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d))}
 function norm(s=''){return latinDigits(s).toLowerCase().replace(/[\-_]/g,' ').replace(/\s+/g,' ').trim()}
-function extractYear(text=''){const ys=(latinDigits(text).match(/(?:19|20)\d{2}/g)||[]).map(Number);return ys.find(v=>v>=1990&&v<=2030)||null}
+function extractYear(text=''){const ys=(latinDigits(text).match(/(?:19|20)\d{2}/g)||[]).map(Number);return ys.find(v=>v>=1980&&v<=2030)||null}
 function isManual(text=''){return /\bmanual\b|man\.?|مانيوال|يدوي|عادي/i.test(norm(text))}
 const cairoFmt=new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Cairo',year:'numeric',month:'2-digit',day:'2-digit'});
 const now=new Date();
@@ -99,7 +85,7 @@ function parseCard(c,targetLabel,area){
 }
 function fingerprint(target,p){return norm([target,p.title,p.year,p.mileage,p.transmission,p.price,p.city].join('|'))}
 async function send(i){
-  const text=['🚗 إعلان سيارة مستعملة جديد','🟣 التصنيف: NEWLY LISTED','🌐 المصدر: Hatla2ee','',`🎯 ${i.target} ${i.year}`,`📌 ${i.title}`,`💰 السعر: ${i.price}`,i.mileage?`🛣️ الكيلومترات: ${i.mileage}`:'',`⚙️ الفتيس: ${i.transmission}`,`📍 المكان: ${i.city}`,'✅ التحقق: مستعمل مؤكد + القاهرة الكبرى + آخر 3 أيام + السعر حتى 250,000 جنيه + بيانات أساسية كاملة',`🔗 رابط الإعلان: ${i.url}`].filter(Boolean).join('\n');
+  const text=['🚗 إعلان سيارة مستعملة جديد','🟣 التصنيف: NEWLY LISTED','🌐 المصدر: Hatla2ee','',`🎯 ${i.target} | موديل ${i.year}`,`📌 ${i.title}`,`💰 السعر: ${i.price}`,i.mileage?`🛣️ الكيلومترات: ${i.mileage}`:'',`⚙️ الفتيس: ${i.transmission}`,`📍 المكان: ${i.city}`,'✅ التحقق: مستعمل مؤكد + القاهرة الكبرى + آخر 3 أيام + السعر حتى 250,000 جنيه + بيانات أساسية كاملة',`🔗 رابط الإعلان: ${i.url}`].filter(Boolean).join('\n');
   for(let attempt=0;attempt<3;attempt++){
     const r=await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:CHAT,text,disable_web_page_preview:false})});
     if(r.ok)return;
@@ -177,7 +163,7 @@ for(const {search,found,healthy} of resultsBySearch.values()){
   const parsed=[];
   for(const c of found){
     const p=parseCard(c,search.targetLabel,search.area);
-    if(!p.year||p.year<search.minYear||p.year>2026){wrongYear++;continue}
+    if(!p.year||p.year<search.minYear||p.year>new Date().getFullYear()+1){wrongYear++;continue}
     if(!hasRequiredHatla2eeCardData(p)){parseRejected++;continue}
     if(search.manualOnly&&!isManual(`${p.transmission}\n${c.cardText}`)){manualRejected++;continue}
     eligible++;
