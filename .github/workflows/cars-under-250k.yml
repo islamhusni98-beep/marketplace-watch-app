@@ -1,6 +1,11 @@
 name: Cars under 250k — Hatla2ee and Dubizzle
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cars-under-250k.yml'
+      - 'scripts/hatla2ee-under-250k.mjs'
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
