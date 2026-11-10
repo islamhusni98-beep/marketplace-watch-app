@@ -99,7 +99,7 @@ const pageSamples=[];
 for(const search of SEARCHES){
   const page=await ctx.newPage();
   try{
-    await page.goto(search.url,{waitUntil:'domcontentloaded',timeout:60000});
+    const response=await page.goto(search.url,{waitUntil:'domcontentloaded',timeout:60000});
     await page.waitForTimeout(350);
     pagesVisited++;
     const found=await page.locator('a[href*="/en/car/"]').evaluateAll(links=>{
@@ -118,10 +118,13 @@ for(const search of SEARCHES){
       }
       return out;
     });
-    const healthy=found.length>0;
-    if(healthy)pagesWithCards++;
+    const pageText=(await page.locator('body').innerText().catch(()=>''))||'';
+    const blocked=/captcha|verify you are human|access denied|robot check|unusual traffic|request blocked/i.test(pageText.slice(0,4000));
+    const healthy=Boolean(response&&response.status()>=200&&response.status()<400&&pageText.trim().length>20&&!blocked);
+    if(found.length)pagesWithCards++;
     console.log(`Hatla2ee ${search.label}: ${found.length}`);
     if(pageSamples.length<8&&found.length)pageSamples.push({search:search.label,...found[0]});
+    if(!healthy)console.warn(`Hatla2ee ${search.label}: page response ${response?.status()||'none'}; page may be empty or blocked`);
     resultsBySearch.set(search.label,{search,found,healthy});
   }catch(e){
     searchErrors++;
@@ -130,7 +133,13 @@ for(const search of SEARCHES){
   }finally{await page.close()}
 }
 
-let eligible=0,baselineAdded=0,sent=0,alreadyKnown=0,wrongYear=0,manualRejected=0,parseRejected=0,rebaselineSearches=0,suppressedDuplicates=0,detailRejected=0,dateRejected=0,outside=0,notUsed=0,priceRejected=0,budgetRejected=0;
+const healthySearches=[...resultsBySearch.values()].filter(result=>result.healthy).length;
+if(healthySearches===0){
+  await browser.close();
+  throw new Error('Hatla2ee returned no healthy search pages; refusing to update watcher state');
+}
+
+let eligible=0,baselineAdded=0,sent=0,alreadyKnown=0,wrongYear=0,manualRejected=0,parseRejected=0,rebaselineSearches=0,suppressedDuplicates=0,detailRejected=0,deliveryErrors=0,dateRejected=0,outside=0,notUsed=0,priceRejected=0,budgetRejected=0;
 const matches=[];
 const runFingerprints=new Set();
 const nextSearchState={...searchState};
@@ -168,6 +177,7 @@ for(const {search,found,healthy} of resultsBySearch.values()){
 
     if(known.has(key)){alreadyKnown++;continue}
 
+    let rememberKey=true;
     if(canDiff&& !prevIds.has(key)){
       const detail=await ctx.newPage();
       try{
@@ -192,13 +202,17 @@ for(const {search,found,healthy} of resultsBySearch.values()){
         sent++;
         if(matches.length<12)matches.push({id:c.id,target:search.targetLabel,title,year:p.year,price,city,transmission,postedOn});
       }catch(e){
-        detailRejected++;
-        console.warn(`Hatla2ee detail ${c.id}: ${e.message}`);
+        if(String(e.message).startsWith('Telegram '))deliveryErrors++;
+        else detailRejected++;
+        rememberKey=false;
+        const currentIndex=currentEligibleIds.indexOf(key);
+        if(currentIndex>=0)currentEligibleIds.splice(currentIndex,1);
+        console.warn(`Hatla2ee detail ${c.id}: ${e.message}; will retry on a later run`);
       }finally{await detail.close()}
     }else{
       baselineAdded++;
     }
-    known.add(key);
+    if(rememberKey)known.add(key);
   }
 
   nextSearchState[search.label]={healthy:true,ids:currentEligibleIds.slice(-500),lastRun:new Date().toISOString()};
@@ -206,7 +220,7 @@ for(const {search,found,healthy} of resultsBySearch.values()){
 
 const state={initialized:true,ids:[...known].slice(-15000),searchState:nextSearchState,lastRun:new Date().toISOString()};
 await fs.writeFile(statePath,JSON.stringify(state,null,2));
-console.log(`Hatla2ee baselineMode=${!initialized}, searches=${SEARCHES.length}, pagesVisited=${pagesVisited}, pagesWithCards=${pagesWithCards}, searchErrors=${searchErrors}, eligible=${eligible}, alreadyKnown=${alreadyKnown}, baselineAdded=${baselineAdded}, rebaselineSearches=${rebaselineSearches}, wrongYear=${wrongYear}, manualRejected=${manualRejected}, parseRejected=${parseRejected}, priceRejected=${priceRejected}, budgetRejected=${budgetRejected}, suppressedDuplicates=${suppressedDuplicates}, notUsed=${notUsed}, dateRejected=${dateRejected}, outside=${outside}, detailRejected=${detailRejected}, sent=${sent}`);
+console.log(`Hatla2ee baselineMode=${!initialized}, searches=${SEARCHES.length}, pagesVisited=${pagesVisited}, pagesWithCards=${pagesWithCards}, searchErrors=${searchErrors}, eligible=${eligible}, alreadyKnown=${alreadyKnown}, baselineAdded=${baselineAdded}, rebaselineSearches=${rebaselineSearches}, wrongYear=${wrongYear}, manualRejected=${manualRejected}, parseRejected=${parseRejected}, priceRejected=${priceRejected}, budgetRejected=${budgetRejected}, suppressedDuplicates=${suppressedDuplicates}, notUsed=${notUsed}, dateRejected=${dateRejected}, outside=${outside}, detailRejected=${detailRejected}, deliveryErrors=${deliveryErrors}, sent=${sent}`);
 if(pageSamples.length)console.log(`Hatla2ee pageSamples=${JSON.stringify(pageSamples)}`);
 if(matches.length)console.log(`Hatla2ee newMatchSamples=${JSON.stringify(matches)}`);
 await browser.close();
