@@ -25,7 +25,7 @@ jobs:
       MAX_ITEMS: ${{ vars.MAX_ITEMS || '150' }}
     steps:
       - uses: actions/checkout@v4
-      - run: npm install --no-audit --no-fund
+      - run: npm install --no-audit --no-fund playwright@1.63.0
       - uses: actions/cache/restore@v4
         with:
           path: data/seen-hatla2ee-under-250k.json
