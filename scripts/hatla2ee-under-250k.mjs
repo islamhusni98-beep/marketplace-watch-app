@@ -27,6 +27,26 @@ const CHAT=process.env.TELEGRAM_CHAT_ID;
 const MAX_PRICE_EGP=250000;
 if(!TOKEN||!CHAT) throw new Error('Telegram config missing');
 
+const MIN_REQUEST_INTERVAL_MS=4000;
+let lastSourceRequestAt=0;
+async function gotoHatla2ee(page,url){
+  let response=null;
+  for(let attempt=0;attempt<3;attempt++){
+    const wait=MIN_REQUEST_INTERVAL_MS-(Date.now()-lastSourceRequestAt);
+    if(wait>0)await new Promise(resolve=>setTimeout(resolve,wait));
+    response=await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000});
+    lastSourceRequestAt=Date.now();
+    if(response?.status()!==429)return response;
+    if(attempt<2){
+      const retryAfter=Number(response.headers()['retry-after']||0)*1000;
+      const cooldown=Math.max(retryAfter,(attempt+1)*15000);
+      console.warn(`Hatla2ee rate limited ${url}; retrying after ${cooldown}ms`);
+      await new Promise(resolve=>setTimeout(resolve,cooldown));
+    }
+  }
+  return response;
+}
+
 const dataDir=path.resolve('data');
 const statePath=path.join(dataDir,'seen-hatla2ee-under-250k.json');
 await fs.mkdir(dataDir,{recursive:true});
@@ -99,7 +119,7 @@ const pageSamples=[];
 for(const search of SEARCHES){
   const page=await ctx.newPage();
   try{
-    const response=await page.goto(search.url,{waitUntil:'domcontentloaded',timeout:60000});
+    const response=await gotoHatla2ee(page,search.url);
     await page.waitForTimeout(350);
     pagesVisited++;
     const found=await page.locator('a[href*="/en/car/"]').evaluateAll(links=>{
@@ -181,7 +201,7 @@ for(const {search,found,healthy} of resultsBySearch.values()){
     if(canDiff&& !prevIds.has(key)){
       const detail=await ctx.newPage();
       try{
-        await detail.goto(c.url,{waitUntil:'domcontentloaded',timeout:60000});
+        await gotoHatla2ee(detail,c.url);
         await detail.waitForTimeout(400);
         const body=(await detail.locator('body').innerText().catch(()=>''))||'';
         const title=(await detail.locator('h1').first().innerText().catch(()=>''))||p.title;
