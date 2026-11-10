@@ -166,7 +166,6 @@ const nextSearchState={...searchState};
 
 for(const {search,found,healthy} of resultsBySearch.values()){
   const prev=searchState[search.label]||{healthy:false,ids:[]};
-  const prevHealthy=Boolean(prev.healthy);
   const prevIds=new Set(Array.isArray(prev.ids)?prev.ids:[]);
   const currentEligibleIds=[];
 
@@ -187,7 +186,7 @@ for(const {search,found,healthy} of resultsBySearch.values()){
     parsed.push({c,p,key});
   }
 
-  const canDiff=initialized&&prevHealthy;
+  const canDiff=initialized;
   if(!canDiff) rebaselineSearches++;
 
   for(const {c,p,key} of parsed){
