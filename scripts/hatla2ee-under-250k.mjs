@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { hasConflictingPrice, hasRequiredHatla2eeCardData } from './hatla2ee-policy.mjs';
+import { hasRequiredHatla2eeCardData } from './hatla2ee-policy.mjs';
 
 const SEARCHES=[
   {label:'All makes - Cairo',url:'https://eg.hatla2ee.com/en/car/city/cairo',targetLabel:'سيارات حتى 250 ألف جنيه',minYear:1980,manualOnly:false,area:'Cairo'},
@@ -145,14 +145,12 @@ if(healthySearches===0){
   throw new Error('Hatla2ee returned no healthy search pages; refusing to update watcher state');
 }
 
-let eligible=0,baselineAdded=0,sent=0,alreadyKnown=0,wrongYear=0,manualRejected=0,parseRejected=0,rebaselineSearches=0,suppressedDuplicates=0,detailRejected=0,deliveryErrors=0,dateRejected=0,outside=0,notUsed=0,priceRejected=0,budgetRejected=0;
+let eligible=0,baselineAdded=0,sent=0,alreadyKnown=0,wrongYear=0,manualRejected=0,parseRejected=0,rebaselineSearches=0,suppressedDuplicates=0,detailRejected=0,retryScheduled=0,deliveryErrors=0,dateRejected=0,outside=0,notUsed=0,budgetRejected=0;
 const matches=[];
 const runFingerprints=new Set();
 const nextSearchState={...searchState};
 
 for(const {search,found,healthy} of resultsBySearch.values()){
-  const prev=searchState[search.label]||{healthy:false,ids:[]};
-  const prevIds=new Set(Array.isArray(prev.ids)?prev.ids:[]);
   const currentEligibleIds=[];
 
   if(!healthy){
@@ -183,7 +181,13 @@ for(const {search,found,healthy} of resultsBySearch.values()){
     if(known.has(key)){alreadyKnown++;continue}
 
     let rememberKey=true;
-    if(canDiff&& !prevIds.has(key)){
+    const deferForRetry=()=>{
+      if(rememberKey)retryScheduled++;
+      rememberKey=false;
+      const currentIndex=currentEligibleIds.indexOf(key);
+      if(currentIndex>=0)currentEligibleIds.splice(currentIndex,1);
+    };
+    if(canDiff){
       const detail=await ctx.newPage();
       try{
         await gotoHatla2ee(detail,c.url);
@@ -195,23 +199,24 @@ for(const {search,found,healthy} of resultsBySearch.values()){
         const city=extractLocation(body);
         const transmission=extractTransmission(body)||p.transmission;
         const price=extractPrice(body)||p.price;
-        if(!condition||!/used|مستعمل/i.test(condition)){notUsed++;continue}
-        if(!postedOn||!acceptedDates.has(postedOn)){dateRejected++;continue}
-        if(!city||!isGreaterCairo(city)){outside++;continue}
-        if(!price||!transmission||!title||!c.url){detailRejected++;continue}
-        if(hasConflictingPrice(price,body)){priceRejected++;console.warn(`Hatla2ee detail ${c.id}: displayed price conflicts with the labeled asking price; suppressing notification`);continue}
+        if(!condition){detailRejected++;deferForRetry();console.warn(`Hatla2ee detail ${c.id}: condition missing; will retry on a later run`);continue}
+        if(!/used|مستعمل/i.test(condition)){notUsed++;known.add(key);continue}
+        if(!postedOn){detailRejected++;deferForRetry();console.warn(`Hatla2ee detail ${c.id}: posted date missing; will retry on a later run`);continue}
+        if(!acceptedDates.has(postedOn)){dateRejected++;known.add(key);continue}
+        if(!city){detailRejected++;deferForRetry();console.warn(`Hatla2ee detail ${c.id}: location missing; will retry on a later run`);continue}
+        if(!isGreaterCairo(city)){outside++;known.add(key);continue}
+        if(!price||!transmission||!title||!c.url){detailRejected++;deferForRetry();console.warn(`Hatla2ee detail ${c.id}: required detail missing; will retry on a later run`);continue}
         const priceAmount=extractPriceAmount(price);
-        if(priceAmount===null||priceAmount>MAX_PRICE_EGP){budgetRejected++;continue}
-        if(search.manualOnly&&!isManual(transmission)){manualRejected++;continue}
+        if(priceAmount===null){detailRejected++;deferForRetry();console.warn(`Hatla2ee detail ${c.id}: asking price could not be parsed; will retry on a later run`);continue}
+        if(priceAmount>MAX_PRICE_EGP){budgetRejected++;known.add(key);continue}
+        if(search.manualOnly&&!isManual(transmission)){manualRejected++;known.add(key);continue}
         await send({url:c.url,target:search.targetLabel,area:search.area,...p,title,city,transmission,price});
         sent++;
         if(matches.length<12)matches.push({id:c.id,target:search.targetLabel,title,year:p.year,price,city,transmission,postedOn});
       }catch(e){
         if(String(e.message).startsWith('Telegram '))deliveryErrors++;
         else detailRejected++;
-        rememberKey=false;
-        const currentIndex=currentEligibleIds.indexOf(key);
-        if(currentIndex>=0)currentEligibleIds.splice(currentIndex,1);
+        deferForRetry();
         console.warn(`Hatla2ee detail ${c.id}: ${e.message}; will retry on a later run`);
       }finally{await detail.close()}
     }else{
@@ -225,7 +230,7 @@ for(const {search,found,healthy} of resultsBySearch.values()){
 
 const state={initialized:true,ids:[...known].slice(-15000),searchState:nextSearchState,lastRun:new Date().toISOString()};
 await fs.writeFile(statePath,JSON.stringify(state,null,2));
-console.log(`Hatla2ee baselineMode=${!initialized}, searches=${SEARCHES.length}, pagesVisited=${pagesVisited}, pagesWithCards=${pagesWithCards}, searchErrors=${searchErrors}, eligible=${eligible}, alreadyKnown=${alreadyKnown}, baselineAdded=${baselineAdded}, rebaselineSearches=${rebaselineSearches}, wrongYear=${wrongYear}, manualRejected=${manualRejected}, parseRejected=${parseRejected}, priceRejected=${priceRejected}, budgetRejected=${budgetRejected}, suppressedDuplicates=${suppressedDuplicates}, notUsed=${notUsed}, dateRejected=${dateRejected}, outside=${outside}, detailRejected=${detailRejected}, deliveryErrors=${deliveryErrors}, sent=${sent}`);
+console.log(`Hatla2ee baselineMode=${!initialized}, searches=${SEARCHES.length}, pagesVisited=${pagesVisited}, pagesWithCards=${pagesWithCards}, searchErrors=${searchErrors}, eligible=${eligible}, alreadyKnown=${alreadyKnown}, baselineAdded=${baselineAdded}, rebaselineSearches=${rebaselineSearches}, wrongYear=${wrongYear}, manualRejected=${manualRejected}, parseRejected=${parseRejected}, budgetRejected=${budgetRejected}, suppressedDuplicates=${suppressedDuplicates}, notUsed=${notUsed}, dateRejected=${dateRejected}, outside=${outside}, detailRejected=${detailRejected}, retryScheduled=${retryScheduled}, deliveryErrors=${deliveryErrors}, sent=${sent}`);
 if(pageSamples.length)console.log(`Hatla2ee pageSamples=${JSON.stringify(pageSamples)}`);
 if(matches.length)console.log(`Hatla2ee newMatchSamples=${JSON.stringify(matches)}`);
 await browser.close();
