@@ -64,7 +64,61 @@ function extractCondition(title='',body=''){
 function extractPostedOn(body=''){return body.match(/(?:Posted\s+On|تاريخ\s+النشر)\s*(?:\n|[:：-]\s*)\s*(\d{4}-\d{2}-\d{2})/i)?.[1]||''}
 function extractLocation(body=''){return body.match(/(?:^|\n)\s*(?:Location|الموقع)\s*(?:\n|[:：-]\s*)\s*([^\n]+)/im)?.[1]?.trim()||''}
 function extractTransmission(body=''){return body.match(/(?:^|\n)\s*(?:Transmission|ناقل الحركة|الفتيس)\s*(?:\n|[:：-]\s*)\s*([^\n]+)/im)?.[1]?.trim()||''}
-function extractPrice(body=''){return body.match(/[0-9٠-٩][0-9٠-٩,٬.]*\s*(?:EGP|ج\.م)/i)?.[0]||''}
+function extractPrice(body=''){return body.match(/[0-9٠-٩][0-9٠-٩,٬.]*\s*(?:EGP|ج\.م)/i)?.[0]?.replace(/\s+/g,' ').trim()||''}
+function extractSellerDescription(body=''){
+  const lines=String(body).replace(/\r/g,'').split('\n').map(line=>line.trim()).filter(Boolean);
+  const locationIndex=lines.findIndex(line=>/^(?:Location|الموقع)$/i.test(line));
+  if(locationIndex<0||locationIndex+2>=lines.length)return '';
+  const start=locationIndex+2;
+  const stopMarker=/^(?:Features|Car Features|مميزات|مواصفات السيارة|Contact Seller|تواصل مع البائع|Report this Ad|الإبلاغ عن الإعلان|Reviews|Market Insights|Premium Deals|Cars in same budget|Latest Car News)$/i;
+  const end=lines.findIndex((line,index)=>index>=start&&stopMarker.test(line));
+  return lines.slice(start,end<0?lines.length:end).join('\n').trim();
+}
+const ARABIC_BRANDS={
+  daewoo:'دايو',hyundai:'هيونداي',suzuki:'سوزوكي',fiat:'فيات',skoda:'سكودا',kia:'كيا',nissan:'نيسان',
+  toyota:'تويوتا',opel:'أوبل',chevrolet:'شيفروليه',renault:'رينو',peugeot:'بيجو',mitsubishi:'ميتسوبيشي',
+  lada:'لادا',speranza:'سبيرانزا',volvo:'فولفو',honda:'هوندا',mazda:'مازدا',daihatsu:'دايهاتسو',
+  'volks wagen':'فولكس فاجن',volkswagen:'فولكس فاجن','great wall':'جريت وول',mercedes:'مرسيدس',bmw:'بي إم دبليو',
+  jac:'جاك',chery:'شيري',zotye:'زوتي',geely:'جيلي',changan:'شانجان',brilliance:'بريليانس',proton:'بروتون',
+  mg:'إم جي',faw:'فاو',chrysler:'كرايسلر',ford:'فورد',isuzu:'إيسوزو',tata:'تاتا',seat:'سيات'
+};
+const ARABIC_MODELS={
+  nubira:'نوبيرا',siena:'سينا',verna:'فيرنا',alto:'ألتو',lanos:'لانوس',punto:'بونتو',petra:'بترا',
+  felicia:'فيليشيا',sunny:'صني',lancer:'لانسر',corolla:'كورولا',accent:'أكسنت',excel:'إكسيل',
+  picanto:'بيكانتو',rio:'ريو',sephia:'سيفيا',mira:'ميرا',golf:'جولف',logan:'لوجان',optra:'أوبترا',
+  aveo:'أفيو',cerato:'سيراتو',maruti:'ماروتي',tercel:'تيرسل',speranza:'سبيرانزا'
+};
+function formatCarTitle(url,fallbackTitle='',year=''){
+  const match=String(url).match(/\/en\/car\/([^/]+)\/([^/]+)\/\d+\/?$/i);
+  if(!match)return String(fallbackTitle||'سيارة').replace(/\s+/g,' ').trim()+' — موديل '+year;
+  let brandSlug=match[1],modelSlug=match[2];
+  try{brandSlug=decodeURIComponent(brandSlug);modelSlug=decodeURIComponent(modelSlug)}catch{}
+  const brandKey=norm(brandSlug.replace(/[-_]/g,' '));
+  const brand=ARABIC_BRANDS[brandKey]||brandSlug.replace(/[-_]/g,' ');
+  const model=modelSlug.replace(/[-_]/g,' ').split(/\s+/).filter(Boolean)
+    .map(part=>ARABIC_MODELS[norm(part)]||part).join(' ');
+  return brand+' '+model+' — موديل '+year;
+}
+function formatLocation(value=''){
+  const key=norm(String(value).replace(/[,،]/g,' ')).replace(/\s+/g,' ').trim();
+  const locations={
+    cairo:'القاهرة',giza:'الجيزة','el shorouk':'الشروق','6 october':'السادس من أكتوبر',
+    downtown:'وسط البلد',maadi:'المعادي',helwan:'حلوان','nasr city':'مدينة نصر',
+    'nasr city cairo':'مدينة نصر، القاهرة','new cairo':'القاهرة الجديدة',
+    'ain shams':'عين شمس',heliopolis:'مصر الجديدة','boulak al dakror':'بولاق الدكرور',
+    'tagamo3 new cairo':'التجمع الخامس','10th of ramadan':'العاشر من رمضان',
+    'sheikh zayed city':'مدينة الشيخ زايد'
+  };
+  return locations[key]||String(value).trim();
+}
+function formatTransmission(value=''){
+  if(/automatic|اوتوماتيك|أوتوماتيك/i.test(value))return 'أوتوماتيك';
+  if(/manual|مانيوال|يدوي/i.test(value))return 'مانيوال';
+  return String(value).trim();
+}
+function formatMileage(value=''){
+  return String(value).replace(/\bKM\b/i,'كم').replace(/\s+/g,' ').trim();
+}
 function extractPriceAmount(value=''){
   const latin=String(value).replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)));
   const match=latin.match(/[0-9][0-9,٬.]*/);
@@ -84,14 +138,25 @@ function parseCard(c,targetLabel,area){
 }
 function fingerprint(target,p){return norm([target,p.title,p.year,p.mileage,p.transmission,p.price,p.city].join('|'))}
 async function send(i){
-  const text=['🚗 إعلان سيارة مستعملة جديد','🟣 التصنيف: NEWLY LISTED','🌐 المصدر: Hatla2ee','',`🎯 ${i.target} | موديل ${i.year}`,`📌 ${i.title}`,`💰 السعر: ${i.price}`,i.mileage?`🛣️ الكيلومترات: ${i.mileage}`:'',`⚙️ الفتيس: ${i.transmission}`,`📍 المكان: ${i.city}`,'✅ التحقق: مستعمل مؤكد + القاهرة الكبرى + آخر 3 أيام + السعر حتى 250,000 جنيه + بيانات أساسية كاملة',`🔗 رابط الإعلان: ${i.url}`].filter(Boolean).join('\n');
+  const price=String(i.price||'').replace(/\s+/g,' ').trim();
+  const description=String(i.sellerDescription||'').trim();
+  const text=[
+    '🚗 '+(i.displayTitle||i.title),
+    '🌐 المصدر: هتلاقي',
+    '💰 السعر المعلن: '+price,
+    '🛣️ العداد: '+formatMileage(i.mileage),
+    '⚙️ الفتيس: '+formatTransmission(i.transmission),
+    '📍 المكان: '+formatLocation(i.city)
+  ].join('\n')+
+    (description?'\n\n📝 وصف البائع:\n'+description:'')+
+    '\n\n🔗 رابط الإعلان الأصلي: '+i.url;
   for(let attempt=0;attempt<3;attempt++){
-    const r=await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:CHAT,text,disable_web_page_preview:false})});
+    const r=await fetch('https://api.telegram.org/bot'+TOKEN+'/sendMessage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:CHAT,text,disable_web_page_preview:false})});
     if(r.ok)return;
     const body=await r.text();
     let retryAfter=0;try{retryAfter=Number(JSON.parse(body)?.parameters?.retry_after||0)}catch{}
-    if(r.status===429&&retryAfter&&attempt<2){console.warn(`Telegram rate limited; retrying after ${retryAfter}s`);await new Promise(resolve=>setTimeout(resolve,(retryAfter+1)*1000));continue}
-    throw new Error(`Telegram ${r.status}: ${body}`);
+    if(r.status===429&&retryAfter&&attempt<2){console.warn('Telegram rate limited; retrying after '+retryAfter+'s');await new Promise(resolve=>setTimeout(resolve,(retryAfter+1)*1000));continue}
+    throw new Error('Telegram '+r.status+': '+body);
   }
 }
 
@@ -209,7 +274,8 @@ for(const {search,found,healthy} of resultsBySearch.values()){
         if(priceAmount===null){detailRejected++;deferForRetry();console.warn(`Hatla2ee detail ${c.id}: asking price could not be parsed; will retry on a later run`);continue}
         if(priceAmount>MAX_PRICE_EGP){budgetRejected++;known.add(key);continue}
         if(search.manualOnly&&!isManual(transmission)){manualRejected++;known.add(key);continue}
-        await send({url:c.url,target:search.targetLabel,area:search.area,...p,title,city,transmission,price});
+        const sellerDescription=extractSellerDescription(body);
+        await send({url:c.url,displayTitle:formatCarTitle(c.url,p.title,p.year),...p,title,city,transmission,price,sellerDescription});
         sent++;
         if(matches.length<12)matches.push({id:c.id,target:search.targetLabel,title,year:p.year,price,city,transmission,postedOn});
       }catch(e){
