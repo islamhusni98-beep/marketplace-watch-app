@@ -38,6 +38,8 @@ await fs.mkdir(dataDir,{recursive:true});
 let initialized=false;
 let known=new Set();
 let searchState={};
+let scopeMigrationVersion=1;
+let scopeMigrationPending=null;
 try{
   const raw=JSON.parse(await fs.readFile(statePath,'utf8'));
   if(Array.isArray(raw)) known=new Set(raw);
@@ -45,8 +47,11 @@ try{
     initialized=Boolean(raw.initialized);
     known=new Set(Array.isArray(raw.ids)?raw.ids:[]);
     searchState=raw.searchState&&typeof raw.searchState==='object'?raw.searchState:{};
+    scopeMigrationVersion=Number(raw.scopeMigrationVersion||1);
+    scopeMigrationPending=Array.isArray(raw.scopeMigrationPending)?new Set(raw.scopeMigrationPending):null;
   }
 }catch{}
+if(!scopeMigrationPending)scopeMigrationPending=new Set([...known]);
 
 function latinDigits(s=''){return String(s).replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d))}
 function norm(s=''){return latinDigits(s).toLowerCase().replace(/[\-_]/g,' ').replace(/\s+/g,' ').trim()}
@@ -54,8 +59,10 @@ function extractYear(text=''){const ys=(latinDigits(text).match(/(?:19|20)\d{2}/
 function isManual(text=''){return /\bmanual\b|man\.?|مانيوال|يدوي|عادي/i.test(norm(text))}
 const cairoFmt=new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Cairo',year:'numeric',month:'2-digit',day:'2-digit'});
 const now=new Date();
-const acceptedDates=new Set([0,1,2].map(days=>cairoFmt.format(new Date(now.getTime()-days*86400000))));
-const isGreaterCairo=t=>/giza|الجيزة|جيزة|cairo|القاهرة|haram|هرم|dokki|دقي|mohandessin|مهندسين|agouza|عجوزة|6th? of october|6 october|october|اكتوبر|أكتوبر|zayed|زايد|faisal|فيصل|imbaba|امبابة|إمبابة|hadayek|حدائق|maryotaya|مريوطية|moneeb|منيب|warraq|وراق|boulaq|بولاق|omraneyah|العمرانية|nasr city|مدينة نصر|heliopolis|مصر الجديدة|maadi|المعادي|new cairo|القاهرة الجديدة|settlement|التجمع|tagamoa|mokattam|المقطم|shorouk|الشروق|badr|بدر|obour|العبور|ain shams|عين شمس|matariya|المطرية|shubra|شبرا|downtown|وسط|sayeda zeinab|السيدة زينب|zamalek|الزمالك|garden city|جاردن سيتي|madinaty|مدينتي|helwan|حلوان|sheraton|شيراتون|ramses|رمسيس|new nozha|النزهة/i.test(norm(t));
+// Hatla2ee exposes Posted On as a date without a time. Accept today and yesterday only,
+// so published ads cannot exceed 48 hours; the source's date precision can omit part of the boundary day.
+const acceptedDates=new Set([0,1].map(days=>cairoFmt.format(new Date(now.getTime()-days*86400000))));
+const wasPreviouslyInCairoScope=t=>/giza|الجيزة|جيزة|cairo|القاهرة|haram|هرم|dokki|دقي|mohandessin|مهندسين|agouza|عجوزة|6th? of october|6 october|october|اكتوبر|أكتوبر|zayed|زايد|faisal|فيصل|imbaba|امبابة|إمبابة|hadayek|حدائق|maryotaya|مريوطية|moneeb|منيب|warraq|وراق|boulaq|بولاق|omraneyah|العمرانية|nasr city|مدينة نصر|heliopolis|مصر الجديدة|maadi|المعادي|new cairo|القاهرة الجديدة|settlement|التجمع|tagamoa|mokattam|المقطم|shorouk|الشروق|badr|بدر|obour|العبور|ain shams|عين شمس|matariya|المطرية|shubra|شبرا|downtown|وسط|sayeda zeinab|السيدة زينب|zamalek|الزمالك|garden city|جاردن سيتي|madinaty|مدينتي|helwan|حلوان|sheraton|شيراتون|ramses|رمسيس|new nozha|النزهة/i.test(norm(t));
 function extractCondition(title='',body=''){
   if(/^\s*Used\b/i.test(title)||/^\s*مستعمل\b/i.test(title)) return 'Used';
   if(/^\s*New\b/i.test(title)||/^\s*جديد\b/i.test(title)) return 'New';
@@ -133,7 +140,8 @@ function parseCard(c,targetLabel,area){
   const mileage=lines.find(x=>/\b[\d,.]+\s*KM\b/i.test(x))||'';
   const transmission=lines.find(x=>/^(Automatic|Manual|A\/T|M\/T|اوتوماتيك|أوتوماتيك|مانيوال|يدوي)$/i.test(x))||'';
   const price=lines.find(x=>/[\d,.]+\s*EGP$/i.test(x))||'';
-  const city=lines.find(x=>/(Cairo|Giza|القاهرة|الجيزة|جيزة)/i.test(x))||area;
+  const priceIndex=lines.findIndex(x=>/[\d,.]+\s*EGP$/i.test(x));
+  const city=priceIndex>=0?(lines[priceIndex+1]||area):area;
   return {title,year,mileage,transmission,price,city};
 }
 function fingerprint(target,p){return norm([target,p.title,p.year,p.mileage,p.transmission,p.price,p.city].join('|'))}
@@ -209,7 +217,7 @@ if(healthySearches===0){
   throw new Error('Hatla2ee returned no healthy search pages; refusing to update watcher state');
 }
 
-let eligible=0,baselineAdded=0,sent=0,alreadyKnown=0,wrongYear=0,manualRejected=0,parseRejected=0,rebaselineSearches=0,suppressedDuplicates=0,detailRejected=0,retryScheduled=0,deliveryErrors=0,dateRejected=0,outside=0,notUsed=0,budgetRejected=0;
+let eligible=0,baselineAdded=0,sent=0,alreadyKnown=0,wrongYear=0,manualRejected=0,parseRejected=0,rebaselineSearches=0,suppressedDuplicates=0,detailRejected=0,retryScheduled=0,deliveryErrors=0,dateRejected=0,scopeReactivated=0,notUsed=0,budgetRejected=0;
 const matches=[];
 const runFingerprints=new Set();
 const nextSearchState={...searchState};
@@ -242,7 +250,10 @@ for(const {search,found,healthy} of resultsBySearch.values()){
     if(runFingerprints.has(fp)){suppressedDuplicates++;known.add(key);continue}
     runFingerprints.add(fp);
 
-    if(known.has(key)){alreadyKnown++;continue}
+    const previouslyKnown=known.has(key);
+    const needsLegacyScopeCheck=Boolean(scopeMigrationPending?.has(key));
+    if(previouslyKnown&&!needsLegacyScopeCheck){alreadyKnown++;continue}
+    if(previouslyKnown&&!canDiff){alreadyKnown++;continue}
 
     let rememberKey=true;
     const deferForRetry=()=>{
@@ -265,10 +276,19 @@ for(const {search,found,healthy} of resultsBySearch.values()){
         const price=extractPrice(body)||p.price;
         if(!condition){detailRejected++;deferForRetry();console.warn(`Hatla2ee detail ${c.id}: condition missing; will retry on a later run`);continue}
         if(!/used|مستعمل/i.test(condition)){notUsed++;known.add(key);continue}
+        if(!city){detailRejected++;deferForRetry();console.warn(`Hatla2ee detail ${c.id}: location missing; will retry on a later run`);continue}
+        if(previouslyKnown){
+          if(wasPreviouslyInCairoScope(city)){
+            scopeMigrationPending?.delete(key);
+            alreadyKnown++;
+            continue;
+          }
+          known.delete(key);
+          scopeMigrationPending?.delete(key);
+          scopeReactivated++;
+        }
         if(!postedOn){detailRejected++;deferForRetry();console.warn(`Hatla2ee detail ${c.id}: posted date missing; will retry on a later run`);continue}
         if(!acceptedDates.has(postedOn)){dateRejected++;known.add(key);continue}
-        if(!city){detailRejected++;deferForRetry();console.warn(`Hatla2ee detail ${c.id}: location missing; will retry on a later run`);continue}
-        if(!isGreaterCairo(city)){outside++;known.add(key);continue}
         if(!price||!transmission||!title||!c.url){detailRejected++;deferForRetry();console.warn(`Hatla2ee detail ${c.id}: required detail missing; will retry on a later run`);continue}
         const priceAmount=extractPriceAmount(price);
         if(priceAmount===null){detailRejected++;deferForRetry();console.warn(`Hatla2ee detail ${c.id}: asking price could not be parsed; will retry on a later run`);continue}
@@ -293,9 +313,9 @@ for(const {search,found,healthy} of resultsBySearch.values()){
   nextSearchState[search.label]={healthy:true,ids:currentEligibleIds.slice(-500),lastRun:new Date().toISOString()};
 }
 
-const state={initialized:true,ids:[...known].slice(-15000),searchState:nextSearchState,lastRun:new Date().toISOString()};
+const state={initialized:true,scopeMigrationVersion:2,scopeMigrationPending:[...(scopeMigrationPending||[])].slice(-15000),ids:[...known].slice(-15000),searchState:nextSearchState,lastRun:new Date().toISOString()};
 await fs.writeFile(statePath,JSON.stringify(state,null,2));
-console.log(`Hatla2ee baselineMode=${!initialized}, searches=${SEARCHES.length}, pagesVisited=${pagesVisited}, pagesWithCards=${pagesWithCards}, searchErrors=${searchErrors}, eligible=${eligible}, alreadyKnown=${alreadyKnown}, baselineAdded=${baselineAdded}, rebaselineSearches=${rebaselineSearches}, wrongYear=${wrongYear}, manualRejected=${manualRejected}, parseRejected=${parseRejected}, budgetRejected=${budgetRejected}, suppressedDuplicates=${suppressedDuplicates}, notUsed=${notUsed}, dateRejected=${dateRejected}, outside=${outside}, detailRejected=${detailRejected}, retryScheduled=${retryScheduled}, deliveryErrors=${deliveryErrors}, sent=${sent}`);
+console.log(`Hatla2ee baselineMode=${!initialized}, searches=${SEARCHES.length}, pagesVisited=${pagesVisited}, pagesWithCards=${pagesWithCards}, searchErrors=${searchErrors}, eligible=${eligible}, alreadyKnown=${alreadyKnown}, baselineAdded=${baselineAdded}, rebaselineSearches=${rebaselineSearches}, wrongYear=${wrongYear}, manualRejected=${manualRejected}, parseRejected=${parseRejected}, budgetRejected=${budgetRejected}, suppressedDuplicates=${suppressedDuplicates}, notUsed=${notUsed}, dateRejected=${dateRejected}, scopeReactivated=${scopeReactivated}, detailRejected=${detailRejected}, retryScheduled=${retryScheduled}, deliveryErrors=${deliveryErrors}, sent=${sent}`);
 if(pageSamples.length)console.log(`Hatla2ee pageSamples=${JSON.stringify(pageSamples)}`);
 if(matches.length)console.log(`Hatla2ee newMatchSamples=${JSON.stringify(matches)}`);
 await browser.close();
