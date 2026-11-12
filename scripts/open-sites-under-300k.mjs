@@ -316,6 +316,7 @@ function parseDetail(source, card, body, heading) {
     transmission: transmission.trim(),
     city: location.trim(),
     condition: used ? 'مستعملة' : condition,
+    used,
     description,
     ageMinutes,
     ageText: card.ageText,
