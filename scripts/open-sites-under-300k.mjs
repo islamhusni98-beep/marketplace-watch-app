@@ -463,10 +463,19 @@ try {
             const detailResult = await gotoPage(detailPage, card.url, policy.crawlDelayMs);
             const detailHeading = await detailPage.locator('h1').first().innerText().catch(() => '');
             const item = parseDetail(source, card, detailResult.body, detailHeading);
-            const complete = item.used && item.priceAmount !== null && item.priceAmount <= MAX_PRICE_EGP &&
-              item.year && item.mileageKm !== null && item.city && item.ageMinutes !== null && item.ageMinutes <= MAX_AGE_MINUTES;
+            const missing = [];
+            if (!item.used) missing.push('used');
+            if (item.priceAmount === null || item.priceAmount > MAX_PRICE_EGP) missing.push('price');
+            if (!item.year) missing.push('year');
+            if (item.mileageKm === null) missing.push('mileage');
+            if (!item.city) missing.push('city');
+            if (item.ageMinutes === null || item.ageMinutes > MAX_AGE_MINUTES) missing.push('age');
+            const complete = missing.length === 0;
             if (complete) detailValid++;
-            else detailRejected++;
+            else {
+              detailRejected++;
+              console.log(source.key + ' preview_detail_missing=' + missing.join(','));
+            }
           } catch (error) {
             if (error instanceof SourceBlockedError) {
               sourceState.paused = true;
