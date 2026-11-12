@@ -33,16 +33,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: npm install --no-audit --no-fund playwright@1.63.0
-      - uses: actions/cache/restore@v4
+      - name: Restore Hatla2ee deduplication state
+        uses: actions/cache/restore@v4
         with:
-          path: |
-            data/seen-hatla2ee-under-250k.json
-            data/hatla2ee-current-fingerprints.json
-            data/seen-open-sites-under-300k.json
+          path: data/seen-hatla2ee-under-250k.json
           key: cars-under-300k-hatla2ee-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             cars-under-300k-hatla2ee-
             cars-under-250k-hatla2ee-
+      - name: Restore open-site deduplication state
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data/hatla2ee-current-fingerprints.json
+            data/seen-open-sites-under-300k.json
+          key: cars-under-300k-open-sites-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            cars-under-300k-open-sites-
       - name: Scan Hatla2ee and publish new matching cars
         if: github.event_name != 'push'
         run: node scripts/hatla2ee-under-250k.mjs
@@ -54,14 +61,20 @@ jobs:
           PUBLISH_TO_TELEGRAM: ${{ github.event_name == 'schedule' }}
           MAX_OPEN_DETAILS_PER_SOURCE: ${{ vars.MAX_OPEN_DETAILS_PER_SOURCE || '3' }}
         run: node scripts/open-sites-under-300k.mjs
-      - if: always()
+      - name: Save Hatla2ee deduplication state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/seen-hatla2ee-under-250k.json
+          key: cars-under-300k-hatla2ee-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Save open-site deduplication state
+        if: always()
         uses: actions/cache/save@v4
         with:
           path: |
-            data/seen-hatla2ee-under-250k.json
             data/hatla2ee-current-fingerprints.json
             data/seen-open-sites-under-300k.json
-          key: cars-under-300k-hatla2ee-${{ github.run_id }}-${{ github.run_attempt }}
+          key: cars-under-300k-open-sites-${{ github.run_id }}-${{ github.run_attempt }}
 
   dubizzle-paused:
     name: Dubizzle access approval required
