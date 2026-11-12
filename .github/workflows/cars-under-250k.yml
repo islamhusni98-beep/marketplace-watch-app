@@ -6,6 +6,8 @@ on:
     paths:
       - '.github/workflows/cars-under-250k.yml'
       - 'scripts/hatla2ee-under-250k.mjs'
+      - 'scripts/car-cross-source-dedupe.mjs'
+      - 'scripts/open-sites-under-300k.mjs'
   schedule:
     - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
@@ -33,17 +35,32 @@ jobs:
       - run: npm install --no-audit --no-fund playwright@1.63.0
       - uses: actions/cache/restore@v4
         with:
-          path: data/seen-hatla2ee-under-250k.json
+          path: |
+            data/seen-hatla2ee-under-250k.json
+            data/hatla2ee-current-fingerprints.json
+            data/seen-open-sites-under-300k.json
           key: cars-under-300k-hatla2ee-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             cars-under-300k-hatla2ee-
             cars-under-250k-hatla2ee-
       - name: Scan Hatla2ee and publish new matching cars
+        if: github.event_name != 'push'
         run: node scripts/hatla2ee-under-250k.mjs
+      - name: Scan 3arabyat and MasrPlace listings
+        if: always() && !cancelled()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: "@carsunder300k"
+          PUBLISH_TO_TELEGRAM: ${{ github.event_name == 'schedule' }}
+          MAX_OPEN_DETAILS_PER_SOURCE: ${{ vars.MAX_OPEN_DETAILS_PER_SOURCE || '3' }}
+        run: node scripts/open-sites-under-300k.mjs
       - if: always()
         uses: actions/cache/save@v4
         with:
-          path: data/seen-hatla2ee-under-250k.json
+          path: |
+            data/seen-hatla2ee-under-250k.json
+            data/hatla2ee-current-fingerprints.json
+            data/seen-open-sites-under-300k.json
           key: cars-under-300k-hatla2ee-${{ github.run_id }}-${{ github.run_attempt }}
 
   dubizzle-paused:
