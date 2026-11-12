@@ -34,32 +34,32 @@ export function normalizeLocation(value = '') {
     .replace(/[ىي]/g, 'ي')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
-  const regions = [
-    ['cairo', /\b(cairo|new cairo|heliopolis|nasr city|maadi|helwan|شروق|شروق|الشروق|القاهره|القاهرة|التجمع|المعادي|حلوان|مدينة نصر|مصر الجديده|مصر الجديدة)\b/i],
-    ['giza', /\b(giza|6th of october|6 october|sheikh zayed|zayed|haram|faisal|dokki|الجيزه|الجيزة|اكتوبر|أكتوبر|الشيخ زايد|زايد|الهرم|فيصل|الدقي)\b/i],
-    ['alexandria', /\b(alexandria|اسكندريه|اسكندرية|الإسكندرية|الاسكندرية)\b/i],
-    ['qalyubia', /\b(qalyubia|banha|beni suef? el? qalyub|القليوبيه|القليوبية|بنها)\b/i],
-    ['gharbia', /\b(gharbia|tanta|طنطا|الغربيه|الغربية)\b/i],
-    ['monufia', /\b(monufia|menoufia|shebin el kom|شبين الكوم|المنوفيه|المنوفية)\b/i],
-    ['dakahlia', /\b(dakahlia|mansoura|المنصوره|المنصورة|الدقهليه|الدقهلية)\b/i],
-    ['sharqia', /\b(sharqia|zagazig|الشرقيه|الشرقية|الزقازيق)\b/i],
-    ['ismailia', /\b(ismailia|الاسماعيليه|الإسماعيلية)\b/i],
-    ['beheira', /\b(beheira|damanhur|دمنهور|البحيره|البحيرة)\b/i],
-    ['damietta', /\b(damietta|دمياط)\b/i],
-    ['suez', /\b(suez|السويس)\b/i],
-    ['port-said', /\b(port said|بورسعيد)\b/i],
-    ['faiyum', /\b(faiyum|fayoum|الفيوم)\b/i],
-    ['asyut', /\b(asyut|اسيوط|أسيوط)\b/i],
-    ['minya', /\b(minya|المنيا)\b/i],
-    ['sohag', /\b(sohag|سوهاج)\b/i],
-    ['qena', /\b(qena|قنا)\b/i],
-    ['aswan', /\b(aswan|اسوان|أسوان)\b/i],
-    ['matrouh', /\b(matrouh|مرسى مطروح|مطروح)\b/i],
-    ['red-sea', /\b(red sea|hurghada|البحر الاحمر|البحر الأحمر|الغردقه|الغردقة)\b/i],
-    ['north-sinai', /\b(north sinai|شمال سيناء)\b/i],
-    ['south-sinai', /\b(south sinai|جنوب سيناء|شرم الشيخ)\b/i],
-  ];
-  for (const [region, pattern] of regions) if (pattern.test(text)) return region;
+  const includesAny = (...terms) => terms.some(term => text.includes(term));
+  if (/\b(cairo|new cairo|heliopolis|nasr city|maadi|helwan)\b/i.test(text) ||
+      includesAny('القاهره', 'القاهرة', 'التجمع', 'المعادي', 'حلوان', 'مدينة نصر', 'مصر الجديدة', 'الشروق')) return 'cairo';
+  if (/\b(giza|6th of october|6 october|sheikh zayed|zayed|haram|faisal|dokki)\b/i.test(text) ||
+      includesAny('الجيزه', 'الجيزة', 'اكتوبر', 'الشيخ زايد', 'زايد', 'الهرم', 'فيصل', 'الدقي')) return 'giza';
+  if (/\balexandria\b/i.test(text) || includesAny('اسكندريه', 'اسكندرية', 'الإسكندرية', 'الاسكندرية')) return 'alexandria';
+  if (/\b(qalyubia|banha)\b/i.test(text) || includesAny('القليوبيه', 'القليوبية', 'بنها')) return 'qalyubia';
+  if (/\b(gharbia|tanta)\b/i.test(text) || includesAny('طنطا', 'الغربيه', 'الغربية')) return 'gharbia';
+  if (/\b(monufia|menoufia|shebin el kom)\b/i.test(text) || includesAny('شبين الكوم', 'المنوفيه', 'المنوفية')) return 'monufia';
+  if (/\b(dakahlia|mansoura)\b/i.test(text) || includesAny('المنصوره', 'المنصورة', 'الدقهليه', 'الدقهلية')) return 'dakahlia';
+  if (/\b(sharqia|zagazig)\b/i.test(text) || includesAny('الشرقيه', 'الشرقية', 'الزقازيق')) return 'sharqia';
+  if (/\b(ismailia)\b/i.test(text) || includesAny('الاسماعيليه', 'الإسماعيلية')) return 'ismailia';
+  if (/\b(beheira|damanhur)\b/i.test(text) || includesAny('دمنهور', 'البحيره', 'البحيرة')) return 'beheira';
+  if (/\bdamietta\b/i.test(text) || includesAny('دمياط')) return 'damietta';
+  if (/\bsuez\b/i.test(text) || includesAny('السويس')) return 'suez';
+  if (/\bport said\b/i.test(text) || includesAny('بورسعيد')) return 'port-said';
+  if (/\b(faiyum|fayoum)\b/i.test(text) || includesAny('الفيوم')) return 'faiyum';
+  if (/\basyut\b/i.test(text) || includesAny('اسيوط', 'أسيوط')) return 'asyut';
+  if (/\bminya\b/i.test(text) || includesAny('المنيا')) return 'minya';
+  if (/\bsohag\b/i.test(text) || includesAny('سوهاج')) return 'sohag';
+  if (/\bqena\b/i.test(text) || includesAny('قنا')) return 'qena';
+  if (/\baswan\b/i.test(text) || includesAny('اسوان', 'أسوان')) return 'aswan';
+  if (/\bmatrouh\b/i.test(text) || includesAny('مرسى مطروح', 'مطروح')) return 'matrouh';
+  if (/\b(red sea|hurghada)\b/i.test(text) || includesAny('البحر الاحمر', 'البحر الأحمر', 'الغردقه', 'الغردقة')) return 'red-sea';
+  if (/\bnorth sinai\b/i.test(text) || includesAny('شمال سيناء')) return 'north-sinai';
+  if (/\b(south sinai|sharm el sheikh)\b/i.test(text) || includesAny('جنوب سيناء', 'شرم الشيخ')) return 'south-sinai';
   return text.replace(/\s+/g, '-');
 }
 
