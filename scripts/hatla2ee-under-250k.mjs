@@ -2,6 +2,7 @@ import { chromium } from 'playwright';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { hasRequiredHatla2eeCardData } from './hatla2ee-policy.mjs';
+import { crossSourceFingerprint } from './car-cross-source-dedupe.mjs';
 
 const SEARCHES=[
   {label:'Cars under 300k - Egypt',url:'https://eg.hatla2ee.com/en/car/price-limit/300000',targetLabel:'سيارات حتى 300 ألف جنيه',minYear:1980,manualOnly:false,area:'Egypt'},
@@ -34,7 +35,14 @@ async function gotoHatla2ee(page,url){
 
 const dataDir=path.resolve('data');
 const statePath=path.join(dataDir,'seen-hatla2ee-under-250k.json');
+const openStatePath=path.join(dataDir,'seen-open-sites-under-300k.json');
+const hatlaSnapshotPath=path.join(dataDir,'hatla2ee-current-fingerprints.json');
 await fs.mkdir(dataDir,{recursive:true});
+let crossSourceSeen=new Set();
+try{
+  const openState=JSON.parse(await fs.readFile(openStatePath,'utf8'));
+  if(Array.isArray(openState?.publishedFingerprints))crossSourceSeen=new Set(openState.publishedFingerprints);
+}catch(e){if(e?.code!=='ENOENT')throw new Error('Could not read cross-source deduplication state: '+e.message)}
 let initialized=false;
 let known=new Set();
 let searchState={};
@@ -221,6 +229,7 @@ let eligible=0,baselineAdded=0,sent=0,alreadyKnown=0,wrongYear=0,manualRejected=
 const matches=[];
 const runFingerprints=new Set();
 const nextSearchState={...searchState};
+const currentCrossSourceFingerprints=new Set();
 
 for(const {search,found,healthy} of resultsBySearch.values()){
   const currentEligibleIds=[];
@@ -236,6 +245,8 @@ for(const {search,found,healthy} of resultsBySearch.values()){
     if(!p.year||p.year<search.minYear||p.year>new Date().getFullYear()+1){wrongYear++;continue}
     if(!hasRequiredHatla2eeCardData(p)){parseRejected++;continue}
     if(search.manualOnly&&!isManual(`${p.transmission}\n${c.cardText}`)){manualRejected++;continue}
+    const sharedFingerprint=crossSourceFingerprint({price:p.price,year:p.year,mileage:p.mileage,city:p.city});
+    if(sharedFingerprint)currentCrossSourceFingerprints.add(sharedFingerprint);
     eligible++;
     const key=`Hatla2ee:${c.id}`;
     currentEligibleIds.push(key);
@@ -252,6 +263,13 @@ for(const {search,found,healthy} of resultsBySearch.values()){
 
     const previouslyKnown=known.has(key);
     const needsLegacyScopeCheck=Boolean(scopeMigrationPending?.has(key));
+    const sharedFingerprint=crossSourceFingerprint({price:p.price,year:p.year,mileage:p.mileage,city:p.city});
+    if(sharedFingerprint&&crossSourceSeen.has(sharedFingerprint)){
+      known.add(key);
+      scopeMigrationPending?.delete(key);
+      alreadyKnown++;
+      continue;
+    }
     if(previouslyKnown&&!needsLegacyScopeCheck){alreadyKnown++;continue}
     if(previouslyKnown&&!canDiff){alreadyKnown++;continue}
 
@@ -315,6 +333,7 @@ for(const {search,found,healthy} of resultsBySearch.values()){
 
 const state={initialized:true,scopeMigrationVersion:2,scopeMigrationPending:[...(scopeMigrationPending||[])].slice(-15000),ids:[...known].slice(-15000),searchState:nextSearchState,lastRun:new Date().toISOString()};
 await fs.writeFile(statePath,JSON.stringify(state,null,2));
+await fs.writeFile(hatlaSnapshotPath,JSON.stringify({lastRun:new Date().toISOString(),fingerprints:[...currentCrossSourceFingerprints].slice(-5000)},null,2));
 console.log(`Hatla2ee baselineMode=${!initialized}, searches=${SEARCHES.length}, pagesVisited=${pagesVisited}, pagesWithCards=${pagesWithCards}, searchErrors=${searchErrors}, eligible=${eligible}, alreadyKnown=${alreadyKnown}, baselineAdded=${baselineAdded}, rebaselineSearches=${rebaselineSearches}, wrongYear=${wrongYear}, manualRejected=${manualRejected}, parseRejected=${parseRejected}, budgetRejected=${budgetRejected}, suppressedDuplicates=${suppressedDuplicates}, notUsed=${notUsed}, dateRejected=${dateRejected}, scopeReactivated=${scopeReactivated}, detailRejected=${detailRejected}, retryScheduled=${retryScheduled}, deliveryErrors=${deliveryErrors}, sent=${sent}`);
 if(pageSamples.length)console.log(`Hatla2ee pageSamples=${JSON.stringify(pageSamples)}`);
 if(matches.length)console.log(`Hatla2ee newMatchSamples=${JSON.stringify(matches)}`);
