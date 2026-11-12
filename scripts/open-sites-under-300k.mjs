@@ -4,7 +4,6 @@ import path from 'node:path';
 import {
   crossSourceFingerprint,
   latinDigits,
-  normalizeLocation,
   parseMileageKm,
   parsePriceAmount,
 } from './car-cross-source-dedupe.mjs';
@@ -387,6 +386,7 @@ let crossDuplicates = 0;
 let staleOrOverBudget = 0;
 let sourceErrors = 0;
 let pausedSources = 0;
+let blockedDuringRun = false;
 const previewMode = !PUBLISH;
 
 try {
@@ -406,12 +406,14 @@ try {
     let policy;
     try {
       policy = await fetchRobots(source, sourceState);
+      if (!policy.allowed) throw new Error('robots.txt did not positively allow this path; skipping it');
     } catch (error) {
       sourceErrors++;
       if (error instanceof SourceBlockedError) {
         sourceState.paused = true;
         sourceState.pauseReason = error.message;
         pausedSources++;
+        blockedDuringRun = true;
       }
       console.warn(source.key + ' skipped: ' + error.message);
       state.sources[source.key] = sourceState;
@@ -470,6 +472,7 @@ try {
               sourceState.paused = true;
               sourceState.pauseReason = error.message;
               pausedSources++;
+              blockedDuringRun = true;
               break;
             }
             detailRejected++;
@@ -485,7 +488,7 @@ try {
 
       if (!sourceWasInitialized) {
         for (const card of parsed) {
-          if (card.ageMinutes !== null && card.ageMinutes > MAX_AGE_MINUTES) continue;
+          if (card.ageMinutes === null || card.ageMinutes > MAX_AGE_MINUTES) continue;
           known.add(card.id);
           baselineAdded++;
         }
@@ -589,6 +592,7 @@ try {
         sourceState.paused = true;
         sourceState.pauseReason = error.message;
         pausedSources++;
+        blockedDuringRun = true;
         console.warn(source.key + ' paused after access block; no more requests will be made to it');
       } else {
         console.warn(source.key + ' scan failed; seen state left unchanged: ' + String(error?.message || error).slice(0, 180));
@@ -602,7 +606,7 @@ try {
   await browser.close();
 }
 
-if (PUBLISH) {
+if (PUBLISH || blockedDuringRun) {
   state.publishedFingerprints = [...publishedFingerprints].slice(-5000);
   state.lastRun = new Date().toISOString();
   await fs.writeFile(statePath, JSON.stringify(state, null, 2));
