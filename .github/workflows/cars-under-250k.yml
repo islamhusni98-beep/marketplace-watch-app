@@ -9,7 +9,7 @@ on:
       - 'scripts/car-cross-source-dedupe.mjs'
       - 'scripts/open-sites-under-300k.mjs'
   schedule:
-    - cron: "7,22,37,52 * * * *"
+    - cron: "3,18,33,48 * * * *"
   workflow_dispatch:
 
 permissions:
