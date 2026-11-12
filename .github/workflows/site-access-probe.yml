@@ -28,18 +28,18 @@ jobs:
 
           const UA = 'Mozilla/5.0 (compatible; MarketplaceWatchApp/1.0; read-only public listing access check)';
           const sources = [
-            { name: '3arabyat', url: 'https://3arabyat.com/en', pathPattern: /\\/en\\/car\\/[^/]+\\/?$/i },
-            { name: 'MasrPlace', url: 'https://masrplace.com/en/cars', pathPattern: /\\/en\\/cars\\/\\d+\\/?$/i },
+            { name: '3arabyat', url: 'https://3arabyat.com/en', pathPattern: '^/en/car/[^/]+/?$' },
+            { name: 'MasrPlace', url: 'https://masrplace.com/en/cars', pathPattern: '^/en/cars/\\d+/?$' },
           ];
 
           function allowedByRobots(text, pathname) {
             const groups = [];
             let group = null;
             let hasRules = false;
-            for (const raw of text.split(/\\r?\\n/)) {
+            for (const raw of text.split(/\r?\n/)) {
               const line = raw.split('#', 1)[0].trim();
               if (!line) continue;
-              const match = line.match(/^(user-agent|allow|disallow):\\s*(.*)$/i);
+              const match = line.match(/^(user-agent|allow|disallow):\s*(.*)$/i);
               if (!match) continue;
               const key = match[1].toLowerCase();
               const value = match[2].trim();
@@ -59,7 +59,7 @@ jobs:
             const specific = groups.filter(g => g.agents.some(a => a !== '*' && product.includes(a)));
             const selected = specific.length ? specific : groups.filter(g => g.agents.includes('*'));
             const rules = selected.flatMap(g => g.rules).filter(r => {
-              const prefix = r.path.replace(/\\*/g, '');
+              const prefix = r.path.replace(/\*/g, '');
               return pathname.startsWith(prefix);
             });
             if (!rules.length) return true;
@@ -114,7 +114,7 @@ jobs:
                   [...new Set(links.map(a => {
                     try { return new URL(a.href).pathname; } catch { return ''; }
                   }).filter(path => new RegExp(pattern, 'i').test(path)))],
-                  source.pathPattern.source,
+                  source.pathPattern,
                 );
                 console.log(source.name + ' page_status=' + status + ' title=' + JSON.stringify(title.slice(0, 100)) + ' listing_links=' + hrefs.length);
               } finally {
