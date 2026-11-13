@@ -10,8 +10,10 @@ const SEARCHES=[
 
 const TOKEN=process.env.TELEGRAM_BOT_TOKEN;
 const CHAT=process.env.TELEGRAM_CHAT_ID;
+const PUBLISH_TO_TELEGRAM=process.env.PUBLISH_TO_TELEGRAM==='true';
 const MAX_PRICE_EGP=300000;
-if(!TOKEN||!CHAT) throw new Error('Telegram config missing');
+if(PUBLISH_TO_TELEGRAM&&(!TOKEN||!CHAT)) throw new Error('Telegram config missing');
+if(!PUBLISH_TO_TELEGRAM)console.log('PUBLISH_TO_TELEGRAM=false; dry-run mode, no Telegram messages will be sent.');
 
 const MIN_REQUEST_INTERVAL_MS=4000;
 let lastSourceRequestAt=0;
@@ -35,8 +37,10 @@ async function gotoHatla2ee(page,url){
 
 const dataDir=path.resolve('data');
 const statePath=path.join(dataDir,'seen-hatla2ee-under-250k.json');
+const stateWritePath=PUBLISH_TO_TELEGRAM?statePath:path.join(dataDir,'.dry-run-seen-hatla2ee-under-250k.json');
 const openStatePath=path.join(dataDir,'seen-open-sites-under-300k.json');
 const hatlaSnapshotPath=path.join(dataDir,'hatla2ee-current-fingerprints.json');
+const hatlaSnapshotWritePath=PUBLISH_TO_TELEGRAM?hatlaSnapshotPath:path.join(dataDir,'.dry-run-hatla2ee-current-fingerprints.json');
 await fs.mkdir(dataDir,{recursive:true});
 let crossSourceSeen=new Set();
 try{
@@ -154,6 +158,7 @@ function parseCard(c,targetLabel,area){
 }
 function fingerprint(target,p){return norm([target,p.title,p.year,p.mileage,p.transmission,p.price,p.city].join('|'))}
 async function send(i){
+  if(!PUBLISH_TO_TELEGRAM){console.log('DRY RUN: would publish '+i.url);return false}
   const price=String(i.price||'').replace(/\s+/g,' ').trim();
   const description=String(i.sellerDescription||'').trim();
   const text=[
@@ -168,7 +173,7 @@ async function send(i){
     '\n\n🔗 رابط الإعلان الأصلي: '+i.url;
   for(let attempt=0;attempt<3;attempt++){
     const r=await fetch('https://api.telegram.org/bot'+TOKEN+'/sendMessage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:CHAT,text,disable_web_page_preview:false})});
-    if(r.ok)return;
+    if(r.ok)return true;
     const body=await r.text();
     let retryAfter=0;try{retryAfter=Number(JSON.parse(body)?.parameters?.retry_after||0)}catch{}
     if(r.status===429&&retryAfter&&attempt<2){console.warn('Telegram rate limited; retrying after '+retryAfter+'s');await new Promise(resolve=>setTimeout(resolve,(retryAfter+1)*1000));continue}
@@ -225,7 +230,7 @@ if(healthySearches===0){
   throw new Error('Hatla2ee returned no healthy search pages; refusing to update watcher state');
 }
 
-let eligible=0,baselineAdded=0,sent=0,alreadyKnown=0,wrongYear=0,manualRejected=0,parseRejected=0,rebaselineSearches=0,suppressedDuplicates=0,detailRejected=0,retryScheduled=0,deliveryErrors=0,dateRejected=0,scopeReactivated=0,notUsed=0,budgetRejected=0;
+let eligible=0,baselineAdded=0,sent=0,dryRunMatches=0,alreadyKnown=0,wrongYear=0,manualRejected=0,parseRejected=0,rebaselineSearches=0,suppressedDuplicates=0,detailRejected=0,retryScheduled=0,deliveryErrors=0,dateRejected=0,scopeReactivated=0,notUsed=0,budgetRejected=0;
 const matches=[];
 const runFingerprints=new Set();
 const nextSearchState={...searchState};
@@ -313,9 +318,14 @@ for(const {search,found,healthy} of resultsBySearch.values()){
         if(priceAmount>MAX_PRICE_EGP){budgetRejected++;known.add(key);continue}
         if(search.manualOnly&&!isManual(transmission)){manualRejected++;known.add(key);continue}
         const sellerDescription=extractSellerDescription(body);
-        await send({url:c.url,displayTitle:formatCarTitle(c.url,p.title,p.year),...p,title,city,transmission,price,sellerDescription});
-        sent++;
-        if(matches.length<12)matches.push({id:c.id,target:search.targetLabel,title,year:p.year,price,city,transmission,postedOn});
+        const published=await send({url:c.url,displayTitle:formatCarTitle(c.url,p.title,p.year),...p,title,city,transmission,price,sellerDescription});
+        if(published){
+          sent++;
+          if(matches.length<12)matches.push({id:c.id,target:search.targetLabel,title,year:p.year,price,city,transmission,postedOn});
+        }else{
+          dryRunMatches++;
+          rememberKey=false;
+        }
       }catch(e){
         if(String(e.message).startsWith('Telegram '))deliveryErrors++;
         else detailRejected++;
@@ -332,9 +342,9 @@ for(const {search,found,healthy} of resultsBySearch.values()){
 }
 
 const state={initialized:true,scopeMigrationVersion:2,scopeMigrationPending:[...(scopeMigrationPending||[])].slice(-15000),ids:[...known].slice(-15000),searchState:nextSearchState,lastRun:new Date().toISOString()};
-await fs.writeFile(statePath,JSON.stringify(state,null,2));
-await fs.writeFile(hatlaSnapshotPath,JSON.stringify({lastRun:new Date().toISOString(),fingerprints:[...currentCrossSourceFingerprints].slice(-5000)},null,2));
-console.log(`Hatla2ee baselineMode=${!initialized}, searches=${SEARCHES.length}, pagesVisited=${pagesVisited}, pagesWithCards=${pagesWithCards}, searchErrors=${searchErrors}, eligible=${eligible}, alreadyKnown=${alreadyKnown}, baselineAdded=${baselineAdded}, rebaselineSearches=${rebaselineSearches}, wrongYear=${wrongYear}, manualRejected=${manualRejected}, parseRejected=${parseRejected}, budgetRejected=${budgetRejected}, suppressedDuplicates=${suppressedDuplicates}, notUsed=${notUsed}, dateRejected=${dateRejected}, scopeReactivated=${scopeReactivated}, detailRejected=${detailRejected}, retryScheduled=${retryScheduled}, deliveryErrors=${deliveryErrors}, sent=${sent}`);
+await fs.writeFile(stateWritePath,JSON.stringify(state,null,2));
+await fs.writeFile(hatlaSnapshotWritePath,JSON.stringify({lastRun:new Date().toISOString(),fingerprints:[...currentCrossSourceFingerprints].slice(-5000)},null,2));
+console.log(`Hatla2ee baselineMode=${!initialized}, searches=${SEARCHES.length}, pagesVisited=${pagesVisited}, pagesWithCards=${pagesWithCards}, searchErrors=${searchErrors}, eligible=${eligible}, alreadyKnown=${alreadyKnown}, baselineAdded=${baselineAdded}, rebaselineSearches=${rebaselineSearches}, wrongYear=${wrongYear}, manualRejected=${manualRejected}, parseRejected=${parseRejected}, budgetRejected=${budgetRejected}, suppressedDuplicates=${suppressedDuplicates}, notUsed=${notUsed}, dateRejected=${dateRejected}, scopeReactivated=${scopeReactivated}, detailRejected=${detailRejected}, retryScheduled=${retryScheduled}, deliveryErrors=${deliveryErrors}, sent=${sent}, dryRunMatches=${dryRunMatches}`);
 if(pageSamples.length)console.log(`Hatla2ee pageSamples=${JSON.stringify(pageSamples)}`);
 if(matches.length)console.log(`Hatla2ee newMatchSamples=${JSON.stringify(matches)}`);
 await browser.close();
