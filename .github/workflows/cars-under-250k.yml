@@ -1,4 +1,4 @@
-name: Cars under 300k — Hatla2ee and Dubizzle
+name: Cars under 300k — Hatla2ee (Dubizzle paused)
 
 on:
   push:
@@ -7,7 +7,6 @@ on:
       - '.github/workflows/cars-under-250k.yml'
       - 'scripts/hatla2ee-under-250k.mjs'
       - 'scripts/car-cross-source-dedupe.mjs'
-      - 'scripts/open-sites-under-300k.mjs'
   schedule:
     - cron: "9,24,39,54 * * * *"
   workflow_dispatch:
@@ -29,6 +28,7 @@ jobs:
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: "@carsunder300k"
+      PUBLISH_TO_TELEGRAM: ${{ github.event_name == 'schedule' }}
       MAX_ITEMS: ${{ vars.MAX_ITEMS || '150' }}
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +41,7 @@ jobs:
           restore-keys: |
             cars-under-300k-hatla2ee-
             cars-under-250k-hatla2ee-
-      - name: Restore open-site deduplication state
+      - name: Restore historical cross-source deduplication state
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -50,24 +50,16 @@ jobs:
           key: cars-under-300k-open-sites-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             cars-under-300k-open-sites-
-      - name: Scan Hatla2ee and publish new matching cars
+      - name: Scan Hatla2ee (scheduled publish; manual runs dry-run)
         if: github.event_name != 'push'
         run: node scripts/hatla2ee-under-250k.mjs
-      - name: Scan 3arabyat and MasrPlace listings
-        if: always() && !cancelled()
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: "@carsunder300k"
-          PUBLISH_TO_TELEGRAM: ${{ github.event_name == 'schedule' }}
-          MAX_OPEN_DETAILS_PER_SOURCE: ${{ vars.MAX_OPEN_DETAILS_PER_SOURCE || '3' }}
-        run: node scripts/open-sites-under-300k.mjs
       - name: Save Hatla2ee deduplication state
         if: always()
         uses: actions/cache/save@v4
         with:
           path: data/seen-hatla2ee-under-250k.json
           key: cars-under-300k-hatla2ee-${{ github.run_id }}-${{ github.run_attempt }}
-      - name: Save open-site deduplication state
+      - name: Save historical cross-source deduplication state
         if: always()
         uses: actions/cache/save@v4
         with:
